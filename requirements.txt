@@ -1,0 +1,5 @@
+torch>=2.2
+numpy>=1.26
+pandas>=2.1
+pyarrow>=14
+pyyaml>=6

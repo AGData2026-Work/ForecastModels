@@ -1,0 +1,60 @@
+# ---------------------------------------------------------------------------
+# BUILD 1 -- faithful replication of the lost original challenger
+#
+# Every value is either (a) documented in the prior session's context file
+# sections 2.1-2.4, or (b) visible in the surviving run_protocol.py. Where the
+# two disagree, run_protocol.py wins: it is the code that actually ran.
+# Disagreements recorded in docs/DECISIONS.md (D-04, D-05).
+#
+# Two deliberate departures, both about MEASUREMENT not the model:
+#   * the evaluation grid is read from the baseline file, not regenerated  (D-01)
+#   * the nine rows with target 2019-04-24 are dropped                     (D-02)
+# ---------------------------------------------------------------------------
+build:
+  name: build1_replication
+  note: >
+    Replication of the lost RNN/GRU challenger. Scored on the real per-market
+    staggered baseline grid instead of a regenerated global 4-weekly grid, so it
+    covers every paired row rather than the 558-pair subset of the original.
+
+data:
+  panel: data/panel_weekly.parquet
+  baseline_forecasts: data/07_panel_fe_forecasts.parquet
+  train_markets: scored_only
+  drop_target_dates: ["2019-04-24"]
+  price_interp_limit_weeks: 13
+
+protocol:
+  horizons: [4, 13, 26]
+  gate_horizons: [4, 13]
+  gate_threshold_pct: 5.0
+
+features:
+  climate_scheme: inverse_distance
+  fourier_k: 2
+  explicit_lag52: false
+
+model:
+  lookback: 52
+  hidden: 64
+  market_embedding_dim: 8
+  head_dropout: 0.0
+  input_dropout: 0.0
+
+training:
+  seeds: [0, 1]
+  epochs: 80
+  batch_size: 256
+  lr: 0.005
+  patience: 15
+  grad_clip: 1.0
+  weight_decay: 0.0
+  lr_schedule: none
+  huber_delta: 1.0
+  val_fraction: 0.15
+  purge_weeks: 0
+  recency_half_life_weeks: null
+  scale_targets: false
+  retrain_every_weeks: 26
+  min_train_windows: 200
+  seed_aggregation: mean
