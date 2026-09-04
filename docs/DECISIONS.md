@@ -347,3 +347,25 @@ should be read from the conditional arm until an unconditional incumbent exists.
 `docs/CONDITIONAL_CONVENTION.md` rather than buried: a conditional number is not
 an achievable accuracy, it is an upper bound conditional on perfect driver
 foresight.
+
+---
+
+## D-16. Version 1 discontinued, 28 August 2026
+
+**Decision.** No further runs of either architecture at version 1. Version 2 only
+going forward.
+
+**Why.** Version 1 exists to reproduce a lost original and that job is done. Its
+results are recorded in the Week 0 status note and its outputs are archived.
+Running it further consumes compute without answering a live question.
+
+**What is retained and why.** `configs/build1.yaml`, the four version 1 output
+folders, and the version 1 figures in the status note. These are the only
+evidence of what the nine version 2 changes did, and one of those effects is
+still open: version 1 calls direction correctly at three months 68.5 and 68.9
+per cent of the time against version 2's 60.3 and 62.1. That gap is the basis
+for the build 3 hypothesis, that version 2's regularisation flattened its
+predictions. Discarding the evidence would leave the hypothesis unsupported.
+
+**Cost.** None to compute. If the directional question is ever settled against
+build 3, version 1 becomes reproducible from the archived config.
