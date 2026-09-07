@@ -664,6 +664,30 @@ original estimate, longer than build 2 because capacity is doubled. If
 direction recovers, `conditional_exog` runs follow for build 3 as well
 (not run here yet).
 
+**Result: success, both architectures, by the criterion fixed above.**
+
+| h | RNN b2 MAE | RNN b3 MAE | RNN b2 dir% | RNN b3 dir% | GRU b2 MAE | GRU b3 MAE | GRU b2 dir% | GRU b3 dir% |
+|---|---|---|---|---|---|---|---|---|
+| 4 | 17.78 | 16.91 | 56.47 | 59.51 | 17.64 | 16.47 | 56.97 | 59.94 |
+| 13 | 34.49 | 31.71 | 60.37 | **61.96** | 34.24 | 30.88 | 62.07 | **63.01** |
+| 26 | 50.63 | 49.07 | 57.30 | 55.67 | 53.69 | 48.74 | 54.30 | 56.06 |
+
+At h=13, the horizon the success criterion is fixed on: both architectures'
+direction rises above their own build 2 figure (RNN 60.37% -> 61.96%, GRU
+62.07% -> 63.01%) while MAE falls, not rises, at every horizon for both
+architectures. h=26 direction is mixed (RNN falls 57.30% -> 55.67%, GRU
+rises 54.30% -> 56.06%), but the criterion was fixed on h=13 specifically,
+before looking, and both architectures clear it there.
+
+**Consequence.** Per the source task's own trigger -- "if direction
+recovers, run `conditional_exog` for build 3 as well" -- that follow-up is
+launched (`configs/build3.yaml`, `--convention conditional_exog`, RNN and
+GRU). Given D-22's `conditional_exog` result for build 2 (worse than
+unconditional for both architectures), whether that holds, reverses, or
+is unaffected under build 3's higher capacity and lighter regularisation is
+now an open, answerable question rather than an assumption carried over
+from build 2.
+
 ---
 
 ## D-24. Split conformal intervals, and 2023-24 coverage breaks down as expected
