@@ -200,6 +200,69 @@ def _safe_log_ratio(num: np.ndarray, den: np.ndarray) -> np.ndarray:
     return out
 
 
+# ---------------------------------------------------------------------------
+# first-cut driver forecasts (Task 9) -- everything computable at the origin
+# ---------------------------------------------------------------------------
+# Diesel method choice, validated once in src/driver_forecasts.py against
+# plain carry-forward on this panel's history. See docs/DECISIONS.md D-25.
+DIESEL_FORECAST_METHOD = "rw_drift"
+
+
+def climatology_forecast(series: np.ndarray, origin_idx: int, target_idx: int,
+                         max_years_back: int = 20) -> float:
+    """Mean of series at (target_idx - 52*k) for k=1,2,..., using only indices
+    STRICTLY BEFORE origin_idx (never the target's own year or later -- using
+    the origin, not the target, as the anti-leakage boundary, consistent with
+    build_flat's lag-52 anchors elsewhere in this module). NaN if no
+    qualifying history exists."""
+    vals = []
+    for k in range(1, max_years_back + 1):
+        a = target_idx - 52 * k
+        if a < 0:
+            break
+        if a >= origin_idx:
+            continue
+        v = series[a]
+        if np.isfinite(v):
+            vals.append(v)
+    return float(np.mean(vals)) if vals else float("nan")
+
+
+def _diesel_drift(series: np.ndarray, origin_idx: int) -> float:
+    """Mean weekly log-difference over all history strictly before
+    origin_idx (expanding, not rolling, consistent with this repo's
+    walk-forward)."""
+    hist = series[:origin_idx]
+    hist = hist[np.isfinite(hist) & (hist > 0)]
+    if len(hist) < 2:
+        return 0.0
+    return float(np.mean(np.diff(np.log(hist))))
+
+
+def diesel_forecast(series: np.ndarray, origin_idx: int, target_idx: int,
+                    method: str = DIESEL_FORECAST_METHOD) -> float:
+    """Random walk with drift, or plain carry-forward. `method` defaults to
+    the choice validated in src/driver_forecasts.py (D-25)."""
+    p0 = series[origin_idx]
+    if not np.isfinite(p0) or p0 <= 0:
+        return float("nan")
+    if method == "carry_forward":
+        return float(p0)
+    drift = _diesel_drift(series, origin_idx)
+    return float(p0 * np.exp(drift * (target_idx - origin_idx)))
+
+
+def upstream_forecast_seasonal_naive(series: np.ndarray, target_idx: int) -> float:
+    """The value 52 weeks before the TARGET. target_idx - 52 <= origin_idx
+    whenever h <= 52, so this is always observed at the origin: no
+    look-ahead, and no chaining a price forecast into another price
+    forecast (rejected explicitly in the source task)."""
+    a = target_idx - 52
+    if a < 0 or not np.isfinite(series[a]) or series[a] <= 0:
+        return float("nan")
+    return float(series[a])
+
+
 def build_sequence(
     p: Panel, i: int, j: int, lookback: int
 ) -> tuple[np.ndarray, bool]:
@@ -235,8 +298,14 @@ def build_flat(
     p: Panel, i: int, j: int, horizons: list[int],
     use_lag52: bool, use_realised_drivers: bool,
     realised_upstream: bool = True,
+    driver_source: str = "realised",
 ) -> tuple[np.ndarray, bool]:
-    """Non-sequence features. Empty array when both switches are off (Build 1 unconditional)."""
+    """Non-sequence features. Empty array when both switches are off (Build 1
+    unconditional). `driver_source` picks between the CONDITIONAL arm's
+    perfect-foresight realised driver values ("realised", the default) and
+    Task 9's first-cut forecasts ("forecast": climatology for rainfall/NDVI,
+    random walk with drift for diesel, seasonal-naive for upstream -- see
+    docs/DECISIONS.md D-25). Only meaningful when use_realised_drivers=True."""
     p0 = p.price[i, j]
     vals: list[float] = []
 
@@ -258,7 +327,7 @@ def build_flat(
                 return np.empty(0), False
             vals.append(float(np.log(p.price[a, j]) - np.log(p.price[b, j])))
 
-    if use_realised_drivers:
+    if use_realised_drivers and driver_source == "realised":
         # CONDITIONAL arm only. Driver values over the forecast window, i.e.
         # information NOT available at the origin. Mirrors what the incumbent
         # panel FE appears to have used (docs/CONDITIONAL_CONVENTION.md).
@@ -277,6 +346,35 @@ def build_flat(
             vals.append(float(np.nanmean(r)) if np.isfinite(r).any() else 0.0)
             vals.append(float(np.nanmean(n)) if np.isfinite(n).any() else 0.0)
 
+    elif use_realised_drivers and driver_source == "forecast":
+        # FORECAST_DRIVERS arm (Task 9). Same four quantities as the
+        # conditional arm, but every value is something computable AT THE
+        # ORIGIN: climatology for rainfall/NDVI, RW+drift for diesel,
+        # seasonal-naive for upstream. No perfect foresight anywhere here.
+        for h in horizons:
+            t = i + h
+            if t >= p.price.shape[0]:
+                return np.empty(0), False
+            d0 = p.diesel[i, j]
+            dfc = diesel_forecast(p.diesel[:, j], i, t)
+            vals.append(float(_safe_log_ratio(np.array([dfc]), np.array([d0]))[0]))
+
+            up_ok = p.has_upstream[j] and np.isfinite(p.upstream[i, j]) and p.upstream[i, j] > 0
+            if up_ok:
+                ufc = upstream_forecast_seasonal_naive(p.upstream[:, j], t)
+                vals.append(float(_safe_log_ratio(np.array([ufc]),
+                                                  np.array([p.upstream[i, j]]))[0])
+                            if np.isfinite(ufc) else 0.0)
+            else:
+                vals.append(0.0)
+
+            rain_fc = [climatology_forecast(p.rainfall[:, j], i, w) for w in range(i + 1, t + 1)]
+            ndvi_fc = [climatology_forecast(p.ndvi[:, j], i, w) for w in range(i + 1, t + 1)]
+            rain_fc = [v for v in rain_fc if np.isfinite(v)]
+            ndvi_fc = [v for v in ndvi_fc if np.isfinite(v)]
+            vals.append(float(np.mean(rain_fc)) if rain_fc else 0.0)
+            vals.append(float(np.mean(ndvi_fc)) if ndvi_fc else 0.0)
+
     arr = np.asarray(vals, dtype=float)
     if arr.size and not np.isfinite(arr).all():
         return np.empty(0), False
@@ -284,17 +382,19 @@ def build_flat(
 
 
 def flat_feature_names(horizons: list[int], use_lag52: bool, use_realised: bool,
-                       realised_upstream: bool = True) -> list[str]:
+                       realised_upstream: bool = True,
+                       driver_source: str = "realised") -> list[str]:
     names = []
     if use_lag52:
         names += [f"lag52_anchor_h{h}" for h in horizons]
         names += [f"lag52_window_return_h{h}" for h in horizons]
     if use_realised:
+        prefix = "realised" if driver_source == "realised" else "forecast"
         for h in horizons:
-            names.append(f"realised_diesel_ret_h{h}")
+            names.append(f"{prefix}_diesel_ret_h{h}")
             if realised_upstream:
-                names.append(f"realised_upstream_ret_h{h}")
-            names += [f"realised_rain_mean_h{h}", f"realised_ndvi_mean_h{h}"]
+                names.append(f"{prefix}_upstream_ret_h{h}")
+            names += [f"{prefix}_rain_mean_h{h}", f"{prefix}_ndvi_mean_h{h}"]
     return names
 
 
@@ -304,6 +404,7 @@ def build_training_windows(
     use_lag52: bool, use_realised_drivers: bool,
     origin_min_idx: int | None = None,
     realised_upstream: bool = True,
+    driver_source: str = "realised",
 ):
     """Every usable (market, week) window whose LAST TARGET lands at or before
     origin_max_idx. Nothing at or after the forecast cut can enter."""
@@ -324,7 +425,7 @@ def build_training_windows(
             if not ok:
                 continue
             F, ok = build_flat(p, i, j, horizons, use_lag52, use_realised_drivers,
-                              realised_upstream)
+                              realised_upstream, driver_source)
             if not ok:
                 continue
             Xs.append(X)
@@ -343,6 +444,7 @@ def build_grid_windows(
     p: Panel, grid: pd.DataFrame, horizons: list[int], lookback: int,
     use_lag52: bool, use_realised_drivers: bool,
     realised_upstream: bool = True,
+    driver_source: str = "realised",
 ):
     """Windows for scored (market, origin) pairs. Origin price and actuals come
     from the baseline file so the paired comparison uses identical targets."""
@@ -358,7 +460,7 @@ def build_grid_windows(
             skipped.append((r["market"], r["origin"], "sequence_incomplete"))
             continue
         F, ok = build_flat(p, i, j, horizons, use_lag52, use_realised_drivers,
-                          realised_upstream)
+                          realised_upstream, driver_source)
         if not ok:
             skipped.append((r["market"], r["origin"], "flat_incomplete"))
             continue

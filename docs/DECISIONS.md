@@ -691,3 +691,64 @@ the current or a future regime shift, not a defect in the interval method
 itself -- split conformal's marginal coverage guarantee is unconditional
 over the calibration distribution and is not expected to hold under
 distribution shift, which 2023-24 is.
+
+---
+
+## D-25. Driver forecasts, first cut, and a mandated method that loses to carry-forward
+
+**Decision.** `src/data.py` gains `climatology_forecast`, `diesel_forecast`
+(random walk with drift or carry-forward), and
+`upstream_forecast_seasonal_naive`, all computable at the origin with no
+look-ahead (climatology uses only years strictly before the origin;
+seasonal-naive for upstream uses `target - 52 <= origin` whenever h <= 52,
+so it never reaches past the origin). `build_flat` gained
+`driver_source: "realised" | "forecast"`; a new `--convention
+forecast_drivers` in `run.py` uses the forecast path for all four driver
+quantities (diesel, upstream, rainfall, NDVI), the same shape as
+`conditional` (18 flat features) but with every value something the model
+could actually have at deployment time. `flat_feature_names` prefixes
+`forecast_` instead of `realised_` under this convention so
+`run_metadata.json` cannot misreport a forecast as a realised value (a bug
+caught and fixed during this task, before any run used it).
+
+**Diesel method, validated as instructed.** Random walk with drift beats
+plain carry-forward at every horizon and pooled: MAE 49.196 vs 53.157
+NGN/kg pooled, winning at h=4 (22.82 vs 23.11), h=13 (47.24 vs 50.39), and
+h=26 (77.52 vs 85.97). `DIESEL_FORECAST_METHOD = "rw_drift"` in `data.py`
+matches this result; `src/driver_forecasts.py` reruns the comparison and
+prints a reminder to check the two stay consistent if the panel changes.
+
+**Rainfall and NDVI climatology, confirmed strongly seasonal.** Climatology
+beats carry-forward by a wide margin at every horizon: rainfall MAE 4.3-5.0
+vs 10.2-37.8; NDVI 0.018-0.019 vs 0.059-0.252. Consistent with the task's
+own expectation that strongly seasonal variables should beat carry-forward
+substantially.
+
+**Finding not asked for but discovered: upstream seasonal-naive loses to
+carry-forward, badly, at every horizon.** MAE 60.7 vs 20.1 (h=4), 67.0 vs
+39.0 (h=13), 80.4 vs 56.3 (h=26) NGN/kg -- carry-forward is 2-3x more
+accurate. The source task specifies seasonal-naive for upstream without
+asking for the carry-forward comparison it required for diesel; that
+comparison was run anyway because the two methods were already being
+computed side by side for the report, and the result is one-sided enough to
+flag rather than bury. Plausible reason: maize prices carry a strong trend
+(2023-24 inflation and fuel-subsidy removal put current levels far above a
+year-ago level), so "52 weeks ago" is a stale anchor exactly where the panel
+has moved the most, while carry-forward at least starts from the current
+level. **Implemented as specified (seasonal-naive) regardless**, since the
+task fixed the method rather than asking for validation, but this is a
+material caveat on `forecast_drivers`: its upstream input is measurably
+worse than the simplest possible alternative, so any shortfall in
+`forecast_drivers` versus `conditional_exog` should be checked against this
+before being read as "driver forecasting doesn't help" -- some of the gap
+may be an avoidably bad upstream method rather than a ceiling on
+forecastability itself.
+
+**Verified before training.** Feature counts and names checked:
+`forecast_drivers` produces 18 flat features named `forecast_*` (not
+`realised_*`); smoke run trains end to end, 11,011 parameters.
+
+**Cost.** Two full runs (RNN, GRU, `forecast_drivers`, full grid) to
+complete the four-row headline table (operational / forecast_drivers /
+conditional_exog / foreknowledge) that the source task asks for; not
+complete at time of writing this entry.

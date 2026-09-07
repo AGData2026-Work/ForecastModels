@@ -59,7 +59,8 @@ def main() -> None:
     ap.add_argument("--config", required=True)
     ap.add_argument("--kind", required=True, choices=["RNN", "GRU"])
     ap.add_argument("--convention", required=True,
-                    choices=["unconditional", "conditional", "conditional_exog"])
+                    choices=["unconditional", "conditional", "conditional_exog",
+                            "forecast_drivers"])
     ap.add_argument("--out", default=None)
     ap.add_argument("--smoke", action="store_true",
                     help="3 cuts, 1 seed, 4 epochs: pipeline check, not a result")
@@ -85,8 +86,9 @@ def main() -> None:
     max_h = max(H)
     L = cfg["model"]["lookback"]
     use_lag52 = bool(cfg["features"]["explicit_lag52"])
-    use_realised = a.convention.startswith("conditional")
-    realised_upstream = a.convention == "conditional"
+    use_realised = a.convention in ("conditional", "conditional_exog", "forecast_drivers")
+    realised_upstream = a.convention in ("conditional", "forecast_drivers")
+    driver_source = "forecast" if a.convention == "forecast_drivers" else "realised"
     seeds = a.seeds or cfg["training"]["seeds"]
     hidden = a.hidden or cfg["model"]["hidden"]
     if a.smoke:
@@ -143,7 +145,7 @@ def main() -> None:
         Xtr_all, Ftr_all, ytr_all, mtr_all = build_training_windows(
             panel, H, L, origin_max_idx=cut_i - 1, train_market_ids=train_ids,
             use_lag52=use_lag52, use_realised_drivers=use_realised,
-            realised_upstream=realised_upstream,
+            realised_upstream=realised_upstream, driver_source=driver_source,
         )
         if len(Xtr_all) < cfg["training"]["min_train_windows"]:
             skips.append(dict(cut=cut, reason="too_few_training_windows",
@@ -171,7 +173,7 @@ def main() -> None:
 
         Xte, Fte, yte, mte, sk = build_grid_windows(
             panel, served, H, L, use_lag52=use_lag52, use_realised_drivers=use_realised,
-            realised_upstream=realised_upstream)
+            realised_upstream=realised_upstream, driver_source=driver_source)
         if len(sk):
             sk = sk.assign(cut=cut)
             skips.extend(sk.to_dict("records"))
@@ -272,7 +274,8 @@ def main() -> None:
         param_breakdown=net.param_breakdown(),
         sequence_channels=SEQ_BASE_CHANNELS,
         n_flat_features=n_flat,
-        flat_feature_names=flat_feature_names(H, use_lag52, use_realised, realised_upstream),
+        flat_feature_names=flat_feature_names(H, use_lag52, use_realised, realised_upstream,
+                                              driver_source),
         train_markets=train_mkts, scored_markets=scored,
         n_retrain_cuts=len(cuts), retrain_every_weeks=cfg["training"]["retrain_every_weeks"],
         config=cfg, panel_log=panel.log, grid_log=glog,
