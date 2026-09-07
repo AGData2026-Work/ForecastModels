@@ -124,7 +124,7 @@ def main() -> None:
     print(f"train on {len(train_mkts)} markets; {len(cuts)} retrain cuts "
           f"every {cfg['training']['retrain_every_weeks']}w")
 
-    rows, tlog, skips, splits = [], [], [], []
+    rows, tlog, skips, splits, epoch_rows = [], [], [], [], []
     T = lambda x: torch.tensor(np.asarray(x, dtype=np.float32), device=dev)
     I = lambda x: torch.tensor(np.asarray(x), dtype=torch.long, device=dev)
 
@@ -197,6 +197,8 @@ def main() -> None:
             )
             yhat = sc.y_inverse(predict(net, T(Xte_s), T(Fte_s),
                                         I(mte["market_id"].values)))
+            hist = info.pop("history", [])
+            epoch_rows.extend(dict(cut=cut, seed=seed, **h) for h in hist)
             info.update(cut=cut, seed=seed, n_params=net.n_params(),
                         n_served=len(mte), purge_applied=slog["purge_weeks_applied"])
             tlog.append(info)
@@ -223,6 +225,7 @@ def main() -> None:
     fc.to_csv(out / "forecasts.csv", index=False)
     pd.DataFrame(tlog).to_csv(out / "training_log.csv", index=False)
     pd.DataFrame(splits).to_csv(out / "split_log.csv", index=False)
+    pd.DataFrame(epoch_rows).to_csv(out / "epoch_log.csv", index=False)
 
     agg = cfg["training"]["seed_aggregation"]
     g = fc.groupby(["origin", "market", "h"], as_index=False).agg(

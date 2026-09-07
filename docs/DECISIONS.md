@@ -395,3 +395,58 @@ full walk-forward, not yet re-run at time of writing, is MAE rising by 0.018,
 0.033 and 0.046 NGN/kg at h=4, 13, 26 with reported figures unchanged to two
 decimal places; this is a defensibility fix, not an accuracy fix, and a result
 that barely moves after it is the expected outcome, not a sign the fix failed.
+
+---
+
+## D-18. Training loss logged alongside validation loss
+
+**Decision.** `train_one` in `src/model.py` now records `{epoch, train_loss,
+val_loss, train_loss_subsampled}` every epoch and returns it as `history` in the
+info dict. `run.py` writes it to `epoch_log.csv` in each run directory, one row
+per (cut, seed, epoch). Training-loss evaluation subsamples to a fixed 4,000
+rows, drawn once per fit, whenever `n_train > 8000`; `train_loss_subsampled`
+records when that happened so a downstream reader knows the two losses in a row
+are not always computed on the same-sized set.
+
+**Why.** Build 1's Week 0 diagnosis (under-learning versus overfitting, the
+premise behind the Build 3 hypothesis in D-16) had to be inferred from
+validation loss alone, because training loss was never recorded. The two losses
+answer different questions: a gap between them with training falling and
+validation rising is overfitting, both high and flat is under-learning. Without
+`train_loss`, the diagnosis rested on the shape of validation loss alone, which
+is consistent with either failure mode.
+
+**Verified.** Smoke run of `build2.yaml` RNN unconditional produced
+`epoch_log.csv` with columns `cut, seed, epoch, train_loss, val_loss,
+train_loss_subsampled`, four rows per (cut, seed) matching the smoke epoch
+count.
+
+**Incident during verification, and the fix.** Running that smoke-test
+verification with the command given in the work order writes to
+`outputs/build2_best_practice/RNN_unconditional/`, the same path the real
+35-cut production run already occupied, with no smoke-specific suffix. It
+overwrote that run's `forecasts.csv`, `training_log.csv`,
+`predictions_paired.csv` and related files with the 3-cut, 1-seed, 4-epoch
+smoke output. `outputs/` and `logs/` are both gitignored, so there was no git
+history to recover from; the other three build2 run directories were
+unaffected (confirmed by directory size and modification time). The original
+console log survived at `logs/build2_best_practice_RNN_unconditional.log` and
+was copied to `..._pre_D17.log` before the rerun; it records the pre-D17
+headline: h=4/13/26 challenger MAE 17.76/34.46/50.59, direction 56.4/60.3/57.4%,
+n=1592, 35 cuts. The run was redone in full
+(`--config configs/build2.yaml --kind RNN --convention unconditional --device
+cpu --threads 0`) to restore it; it is not bit-identical to the original
+because D-17 changed the grid under it (1,590 pairs, not 1,592), so the new
+numbers carry both the D-17 grid fix and the D-18 logging addition, not D-18
+alone. Anyone diffing this run against the Week 0 status note should expect
+that combined effect, not D-18 in isolation.
+
+**`run.py` should gain a smoke-specific output suffix** so this cannot recur;
+not implemented here because expanding scope beyond Task 2's stated change was
+not asked for. Flagged for whoever picks this up next.
+
+**Cost.** One column set per epoch, four training-set forward passes at the
+worst (largest-cut, most-seeds) point instead of one, since the training loss
+now needs a fresh forward pass every epoch on top of the existing validation
+pass; capped by the 4,000-row subsample so it does not scale with the largest
+cuts' full training set (nearly 5,000 windows by cut 35).

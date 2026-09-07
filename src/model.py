@@ -83,6 +83,12 @@ def train_one(
     loss_fn = nn.HuberLoss(delta=huber_delta, reduction="none")
 
     n = len(Xtr)
+    train_loss_subsampled = n > 8000
+    if train_loss_subsampled:
+        sub = torch.from_numpy(
+            np.random.choice(n, size=4000, replace=False)).long().to(Xtr.device)
+
+    history = []
     best, best_state, bad, ran = float("inf"), None, 0, 0
     for ep in range(epochs):
         net.train()
@@ -101,6 +107,12 @@ def train_one(
         net.eval()
         with torch.no_grad():
             v = loss_fn(net(Xva, Fva, Iva), yva).mean().item()
+            if train_loss_subsampled:
+                t = loss_fn(net(Xtr[sub], Ftr[sub], Itr[sub]), ytr[sub]).mean().item()
+            else:
+                t = loss_fn(net(Xtr, Ftr, Itr), ytr).mean().item()
+        history.append({"epoch": ep + 1, "train_loss": t, "val_loss": v,
+                        "train_loss_subsampled": train_loss_subsampled})
         ran = ep + 1
         if v < best - 1e-7:
             best, bad = v, 0
@@ -111,7 +123,8 @@ def train_one(
                 break
     if best_state is not None:
         net.load_state_dict(best_state)
-    return net, {"best_val": best, "epochs_run": ran, "n_train": n, "n_val": len(Xva)}
+    return net, {"best_val": best, "epochs_run": ran, "n_train": n, "n_val": len(Xva),
+                "history": history}
 
 
 @torch.no_grad()
