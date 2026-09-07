@@ -369,3 +369,29 @@ predictions. Discarding the evidence would leave the hypothesis unsupported.
 
 **Cost.** None to compute. If the directional question is ever settled against
 build 3, version 1 becomes reproducible from the archived config.
+
+---
+
+## D-17. Origin date filter closed: `drop_target_dates` now drops by origin too
+
+**Decision.** `load_grid` in `src/data.py` masks on `f["target"].isin(bad) |
+f["origin"].isin(bad)`, not `target` alone. The log key is renamed
+`dropped_by_date_filter` (was `dropped_by_target_filter`) so it does not claim to
+be target-only when it is not; `src/run.py`'s reader was updated in the same edit.
+
+**Why.** 2019-04-24 is a full-panel outage week (D-02). The target-only mask
+caught the nine rows whose *target* lands there, but missed six more whose
+*origin* week is 2019-04-24: those forecasts are issued from a week with no
+recorded panel price, so the input side of those windows is exactly as
+unverifiable as the target side was. `load_grid('data/07_panel_fe_forecasts.parquet',
+[4,13,26], ['2019-04-24'])` now reports 1,590 pairs and 15 dropped rows, up from
+1,592 and 9.
+
+**Cost.** Six more of 1,601 pairs dropped, 0.37 percentage points on top of D-02's
+0.56%. `audit.py` reports the full 1,601-row grid and is not itself affected by
+`drop_target_dates`; it was re-run only to confirm `load_grid` still executes
+without error after the mask change, which it does. The expected effect on a
+full walk-forward, not yet re-run at time of writing, is MAE rising by 0.018,
+0.033 and 0.046 NGN/kg at h=4, 13, 26 with reported figures unchanged to two
+decimal places; this is a defensibility fix, not an accuracy fix, and a result
+that barely moves after it is the expected outcome, not a sign the fix failed.

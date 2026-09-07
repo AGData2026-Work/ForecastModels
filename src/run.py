@@ -273,7 +273,7 @@ def main() -> None:
         price_cells_interpolated=panel.log["price_cells_interpolated"],
         price_interp_limit_weeks=panel.log["interp_limit_weeks"],
         full_panel_outage_weeks=panel.log["full_panel_outage_weeks"],
-        grid_rows_dropped_by_target_filter=glog["dropped_by_target_filter"],
+        grid_rows_dropped_by_target_filter=glog["dropped_by_date_filter"],
         grid_dropped_target_dates=glog["dropped_target_dates"],
         grid_rows_dropped_incomplete_horizons=glog["dropped_incomplete_horizon_set"],
         windows_skipped=skips,

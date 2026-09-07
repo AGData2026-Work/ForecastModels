@@ -158,7 +158,7 @@ def load_grid(
     dropped = pd.DataFrame()
     if drop_targets:
         bad = pd.to_datetime(drop_targets)
-        mask = f["target"].isin(bad)
+        mask = f["target"].isin(bad) | f["origin"].isin(bad)
         dropped = f[mask].copy()
         f = f[~mask]
 
@@ -182,7 +182,7 @@ def load_grid(
         "markets": sorted(piv["market"].unique()),
         "first_origin": str(piv["origin"].min().date()),
         "last_origin": str(piv["origin"].max().date()),
-        "dropped_by_target_filter": int(len(dropped)),
+        "dropped_by_date_filter": int(len(dropped)),
         "dropped_target_dates": sorted(set(str(t.date()) for t in dropped["target"])) if len(dropped) else [],
         "dropped_incomplete_horizon_set": int(len(incomplete)),
         "origins_per_market": piv.groupby("market").size().to_dict(),
