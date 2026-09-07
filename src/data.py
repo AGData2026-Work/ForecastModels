@@ -234,6 +234,7 @@ def build_sequence(
 def build_flat(
     p: Panel, i: int, j: int, horizons: list[int],
     use_lag52: bool, use_realised_drivers: bool,
+    realised_upstream: bool = True,
 ) -> tuple[np.ndarray, bool]:
     """Non-sequence features. Empty array when both switches are off (Build 1 unconditional)."""
     p0 = p.price[i, j]
@@ -267,9 +268,10 @@ def build_flat(
                 return np.empty(0), False
             vals.append(float(_safe_log_ratio(np.array([p.diesel[t, j]]),
                                               np.array([p.diesel[i, j]]))[0]))
-            up_ok = p.has_upstream[j] and np.isfinite(p.upstream[i, j]) and p.upstream[i, j] > 0
-            vals.append(float(_safe_log_ratio(np.array([p.upstream[t, j]]),
-                                              np.array([p.upstream[i, j]]))[0]) if up_ok else 0.0)
+            if realised_upstream:
+                up_ok = p.has_upstream[j] and np.isfinite(p.upstream[i, j]) and p.upstream[i, j] > 0
+                vals.append(float(_safe_log_ratio(np.array([p.upstream[t, j]]),
+                                                  np.array([p.upstream[i, j]]))[0]) if up_ok else 0.0)
             seg = slice(i + 1, t + 1)
             r, n = p.rainfall[seg, j], p.ndvi[seg, j]
             vals.append(float(np.nanmean(r)) if np.isfinite(r).any() else 0.0)
@@ -281,15 +283,18 @@ def build_flat(
     return arr, True
 
 
-def flat_feature_names(horizons: list[int], use_lag52: bool, use_realised: bool) -> list[str]:
+def flat_feature_names(horizons: list[int], use_lag52: bool, use_realised: bool,
+                       realised_upstream: bool = True) -> list[str]:
     names = []
     if use_lag52:
         names += [f"lag52_anchor_h{h}" for h in horizons]
         names += [f"lag52_window_return_h{h}" for h in horizons]
     if use_realised:
         for h in horizons:
-            names += [f"realised_diesel_ret_h{h}", f"realised_upstream_ret_h{h}",
-                      f"realised_rain_mean_h{h}", f"realised_ndvi_mean_h{h}"]
+            names.append(f"realised_diesel_ret_h{h}")
+            if realised_upstream:
+                names.append(f"realised_upstream_ret_h{h}")
+            names += [f"realised_rain_mean_h{h}", f"realised_ndvi_mean_h{h}"]
     return names
 
 
@@ -298,6 +303,7 @@ def build_training_windows(
     origin_max_idx: int, train_market_ids: list[int],
     use_lag52: bool, use_realised_drivers: bool,
     origin_min_idx: int | None = None,
+    realised_upstream: bool = True,
 ):
     """Every usable (market, week) window whose LAST TARGET lands at or before
     origin_max_idx. Nothing at or after the forecast cut can enter."""
@@ -317,7 +323,8 @@ def build_training_windows(
             X, ok = build_sequence(p, i, j, lookback)
             if not ok:
                 continue
-            F, ok = build_flat(p, i, j, horizons, use_lag52, use_realised_drivers)
+            F, ok = build_flat(p, i, j, horizons, use_lag52, use_realised_drivers,
+                              realised_upstream)
             if not ok:
                 continue
             Xs.append(X)
@@ -335,6 +342,7 @@ def build_training_windows(
 def build_grid_windows(
     p: Panel, grid: pd.DataFrame, horizons: list[int], lookback: int,
     use_lag52: bool, use_realised_drivers: bool,
+    realised_upstream: bool = True,
 ):
     """Windows for scored (market, origin) pairs. Origin price and actuals come
     from the baseline file so the paired comparison uses identical targets."""
@@ -349,7 +357,8 @@ def build_grid_windows(
         if not ok:
             skipped.append((r["market"], r["origin"], "sequence_incomplete"))
             continue
-        F, ok = build_flat(p, i, j, horizons, use_lag52, use_realised_drivers)
+        F, ok = build_flat(p, i, j, horizons, use_lag52, use_realised_drivers,
+                          realised_upstream)
         if not ok:
             skipped.append((r["market"], r["origin"], "flat_incomplete"))
             continue

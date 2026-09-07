@@ -562,3 +562,35 @@ is small enough that no reported MAE or direction figure needs a proxy
 caveat beyond what is already logged in `Cleaning_Log`.
 
 **Cost.** None; both are read-only checks against data already produced.
+
+---
+
+## D-22. New convention: `conditional_exog`, realised weather and fuel without upstream price
+
+**Decision.** `--convention conditional_exog` in `src/run.py`. `build_flat` in
+`src/data.py` gained `realised_upstream: bool = True`; when false, the
+realised-driver block still supplies diesel log-return and mean rainfall/NDVI
+over the forecast window, but not the neighbouring market's realised price
+return. `flat_feature_names` takes the same parameter so
+`run_metadata.json` cannot misreport what the model saw.
+`use_realised = convention.startswith("conditional")`,
+`realised_upstream = (convention == "conditional")`, so the existing
+`conditional` arm is unchanged and `conditional_exog` is the new middle arm.
+
+**Why.** The upstream feature in the `conditional` arm is another market's
+maize price over the forecast window, which is closer to supplying part of
+the answer than to supplying next season's rainfall. Separating it from the
+other three realised drivers (fuel, rainfall, NDVI, none of which are maize
+prices) tells us what share of the foreknowledge advantage the upstream
+price alone was providing versus genuinely exogenous weather/fuel foresight.
+
+**Verified before training.** Flat feature counts: unconditional 6,
+`conditional_exog` 15, `conditional` 18, matching the specification exactly.
+Smoke run confirmed `run_metadata.json`'s `flat_feature_names` lists the
+9 realised names (diesel + rain + NDVI per horizon, no upstream) and
+`n_flat_features: 15`; head parameter count rose from 10,243
+(unconditional, 6 flat) to 10,819 (`conditional_exog`, 15 flat), consistent
+with 9 extra scalar inputs into a 64-wide head layer.
+
+**Cost.** Two more full runs (RNN, GRU) at the full grid, ~40 min each on
+this machine per the original estimate for a comparable run.
