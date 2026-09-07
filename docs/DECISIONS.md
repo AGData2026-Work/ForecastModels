@@ -595,6 +595,38 @@ with 9 extra scalar inputs into a 64-wide head layer.
 **Cost.** Two more full runs (RNN, GRU) at the full grid, ~40 min each on
 this machine per the original estimate for a comparable run.
 
+**Result, both architectures run, and it is not what "what share of the
+advantage" implies.** `conditional_exog` is worse than `unconditional` at
+every horizon for both architectures, not merely worse than full
+`conditional`:
+
+| h | RNN uncond | RNN exog | RNN cond | GRU uncond | GRU exog | GRU cond |
+|---|---|---|---|---|---|---|
+| 4 | 17.78 | 18.68 | 14.65 | 17.64 | 18.65 | 14.57 |
+| 13 | 34.49 | 40.93 | 25.52 | 34.24 | 40.49 | 25.27 |
+| 26 | 50.63 | 67.13 | 37.95 | 53.69 | 60.83 | 38.25 |
+
+(challenger MAE, NGN/kg, full grid). The gap between `exog` and
+`unconditional` grows with horizon and is largest for RNN at h=26 (67.13 vs
+50.63, 32% worse). The question this task set out to answer -- "what share
+of the foreknowledge advantage was the upstream price alone providing" --
+does not have a percentage-split answer, because the premise that
+`conditional_exog` sits between `unconditional` and `conditional` is false
+here. The upstream feature is not contributing part of the benefit; without
+it, the other three realised drivers (diesel, rainfall, NDVI) make the
+model worse than having no forecast-window driver information at all.
+
+**Interpretation offered, not asserted.** Diesel and rainfall/NDVI realised
+values are weaker, noisier predictors of a maize price than another maize
+price is. Upstream may have been doing double duty: supplying its own
+information and anchoring the other three so the head does not overfit
+three weak, forecast-window signals in the same 15-feature-vs-64-hidden-unit
+regime that D-05/D-09 already flag as parameter-thin. This is offered as a
+plausible mechanism, not confirmed; distinguishing it from an interaction
+with build 2's regularisation (calibrated against the 18-feature
+`conditional` set, not 15-feature `conditional_exog`) would need a separate
+run and is not done here.
+
 ---
 
 ## D-23. Build 3: remove the overfitting safeguards, raise capacity
