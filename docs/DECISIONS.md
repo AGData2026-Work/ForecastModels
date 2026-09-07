@@ -631,3 +631,63 @@ from 10,243 at hidden=64), pipeline runs end to end.
 original estimate, longer than build 2 because capacity is doubled. If
 direction recovers, `conditional_exog` runs follow for build 3 as well
 (not run here yet).
+
+---
+
+## D-24. Split conformal intervals, and 2023-24 coverage breaks down as expected
+
+**Decision.** `src/intervals.py`, per run and horizon: origins split
+chronologically (never shuffled) into calibration (first 60% of distinct
+origin dates) and test (the rest); residuals normalised by origin price
+before the finite-sample split-conformal quantile is taken
+(`k = ceil((n+1)(1-alpha))/n`); interval = pred +/- qhat * origin_price.
+**The 60/40 calibration/test split is a default I chose, not specified in
+the source task** -- it is not the same split as the three reporting
+regimes (2015-19/2020-22/2023-24) below, which are a separate, coarser
+bucketing applied on top for the regime-uncertainty report.
+
+**Headline (test portion, out-of-sample).** Realised coverage tracks nominal
+reasonably across all twelve run/horizon combinations: 72.1-93.6% against an
+80% nominal at alpha=0.20, 87.3-93.6% against 90% at alpha=0.10. Mean width
+in NGN/kg rises with horizon as expected (roughly 70-100 at h=4 to 210-315
+at h=26) and is wider for the unconditional arm than conditional at every
+horizon, since the model is doing more work without driver foreknowledge.
+
+**Regime breakdown, the more informative view.** 2015-19 is 100%
+calibration by construction (it is the earliest data, so the chronological
+split puts nearly all of it before the cutoff) and 2023-24 is 0% calibration
+everywhere, fully out-of-sample. Coverage there is the real test of the
+method, and it fails for the unconditional arm exactly where the Week 0
+diagnostics would predict: GRU-unconditional h=26 realised coverage 60.06%
+against 80% nominal (20-point gap), h=13 67.94% (12-point gap), RNN-
+unconditional h=4 64.71% (15-point gap). The conditional arm's 2023-24
+coverage stays close to nominal throughout (76.9-86.5%), consistent with
+driver foreknowledge absorbing part of the regime shift that the
+unconditional arm cannot see coming. Full table in
+`outputs/intervals_by_regime.csv`; reported as found, not widened to hide
+the gap, per the task's own instruction.
+
+**Three uncertainty components, reported separately.**
+- *Model* (seed spread, from D-20/Task 4): 0.13 to 2.08 NGN/kg standard
+  deviation of MAE across seeds -- small next to the other two.
+- *Data* (conformal width): 71 to 315 NGN/kg mean interval width depending
+  on run and horizon -- the dominant term by roughly two orders of
+  magnitude over model uncertainty.
+- *Regime* (coverage by period): holds near nominal in 2015-19 and 2020-22,
+  breaks down in 2023-24 for the unconditional arm as above.
+Collapsing these into one number would have hidden that regime uncertainty,
+not model uncertainty, is where this method's assumptions are weakest.
+
+**Per-market caution honoured.** No per-market quantile is fit; every
+market uses the pooled (run, horizon) qhat. `outputs/intervals_by_market.csv`
+reports each market's realised coverage under that pooled interval as a
+diagnostic, not a separately calibrated guarantee -- a per-market scale
+factor (mentioned as the intended refinement in the source task) is not
+implemented here.
+
+**Cost.** None to compute beyond reading existing run outputs; no
+retraining. The 2023-24 finding is a reason for caution about deployment in
+the current or a future regime shift, not a defect in the interval method
+itself -- split conformal's marginal coverage guarantee is unconditional
+over the calibration distribution and is not expected to hold under
+distribution shift, which 2023-24 is.
