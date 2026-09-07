@@ -450,3 +450,38 @@ worst (largest-cut, most-seeds) point instead of one, since the training loss
 now needs a fresh forward pass every epoch on top of the existing validation
 pass; capped by the 4,000-row subsample so it does not scale with the largest
 cuts' full training set (nearly 5,000 windows by cut 35).
+
+---
+
+## D-19. Directional accuracy at h=26 unconditional is void against the always-up benchmark
+
+**Decision/finding.** `src/directional_benchmark.py` compares each run's
+directional accuracy against the share of windows in which the price actually
+rose (or fell), not against 50%. Prices trend upward across the panel (65.4%
+of h=26 windows rose in the pairs `RNN_unconditional`/`GRU_unconditional`
+score against), so 50% was never the right reference.
+
+**Result.** At h=26, both unconditional-arm models score below the always-up
+share: GRU 54.3% directional accuracy against a 65.4% always-up share, RNN
+57.3% against 65.35%. An "always predict up" rule with no model at all calls
+direction better than either network does at six months. h=4 and h=13
+unconditional, and all three horizons conditional, clear their respective
+always-up/always-down benchmarks with margins of 0.75 to 16.1 percentage
+points. Full breakdown, including per-period and per-market scopes, in
+`outputs/directional_benchmark.csv`.
+
+**Consequence.** The unconditional arm is the one that describes deployment
+(D-15); any six-month directional claim made from it is void as currently
+reported and needs correcting wherever it appears, including any prior
+reference to build 2's 60.3/62.1% h=13 direction being read as evidence of
+skill without the corresponding always-up share alongside it. The h=13
+figures do clear their benchmark (60.4% and 62.1% against a 59.6% always-up
+share) but only by 0.75 and 2.5 points, on the seed-median prediction. No
+seed-level spread of directional accuracy itself has been computed (D-18's
+`seed_variance.csv` carries per-seed MAE, not per-seed direction), so whether
+a 0.75-point margin survives seed choice is open and should be checked before
+the h=13 unconditional claim is quoted without qualification.
+
+**Cost.** None to compute; this is a five-minute check against data already
+produced. Not run earlier because directional accuracy had not been
+questioned against anything but 50%.
