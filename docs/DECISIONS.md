@@ -525,3 +525,40 @@ enumeration is exact (all C(7,k) subsets, at most 35) rather than a
 random sample, so it is exhaustive at this seed count and would need to
 change if the seed count grows past roughly 10-12, where C(n,k) stops being
 cheap to enumerate in full.
+
+---
+
+## D-21. Reproducibility confirmed; proxy-target sensitivity is small
+
+**Reproducibility.** `build2.yaml` RNN unconditional, smoke settings, run
+twice from a `git worktree` checked out at the `pre-fixes` tag (the code as
+it stood before any Task 1-2 fix in this session), same data, same seeds,
+default (unpinned) thread count. `diff -rq` between the two output
+directories: zero differences, every file byte-identical, including
+`forecasts.csv`'s raw per-seed floating point predictions. The determinism
+claim holds, at least under CPU execution with the thread configuration used
+here; this does not test GPU/MPS determinism, which was not exercised.
+
+**Proxy-target sensitivity.** `src/proxy_sensitivity.py` reuses
+`error_analysis.py`'s existing panel join and reruns `aggregate()` with rows
+where `is_proxy_target` is true excluded, then reports the shift per run and
+horizon. 132 of 1,592 (or 1,590 for `RNN_unconditional`, D-17) scored rows
+per run have a proxy-filled target actual, 528 across the four runs, 2.76%
+of all scored rows. Excluding them shifts challenger MAE by +0.13 to +0.31
+NGN/kg (always worse, i.e. proxy-filled actuals are on average slightly
+easier to hit) and directional accuracy by at most 0.28 percentage points
+in either direction. Full table in `outputs/proxy_sensitivity.csv`.
+
+**Note on the "233" figure in the work order.** That count does not match
+`is_proxy_target` alone (132 per run). It is close to rows proxy-filled at
+target *or* origin (231 measured here), which is a different, wider
+definition than the task's stated instruction to exclude on `is_proxy_target`.
+The rescoring here follows the instruction as written (target only); anyone
+reconciling this against the "233" figure should check which definition it
+was computed under.
+
+**Consequence.** Neither check changes a headline figure. Proxy sensitivity
+is small enough that no reported MAE or direction figure needs a proxy
+caveat beyond what is already logged in `Cleaning_Log`.
+
+**Cost.** None; both are read-only checks against data already produced.
