@@ -91,7 +91,10 @@ def main() -> None:
     if a.smoke:
         seeds = seeds[:1]
 
-    out = Path(a.out or f"outputs/{cfg['build']['name']}/{a.kind}_{a.convention}")
+    default_out = f"outputs/{cfg['build']['name']}/{a.kind}_{a.convention}"
+    if a.smoke:
+        default_out += "_smoke"
+    out = Path(a.out or default_out)
     out.mkdir(parents=True, exist_ok=True)
 
     # ---------------- data ----------------
