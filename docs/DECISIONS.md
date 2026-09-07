@@ -485,3 +485,43 @@ the h=13 unconditional claim is quoted without qualification.
 **Cost.** None to compute; this is a five-minute check against data already
 produced. Not run earlier because directional accuracy had not been
 questioned against anything but 50%.
+
+---
+
+## D-20. Seed-to-seed spread of the headline metric, and per-market verdict stability
+
+**Decision/finding.** `src/seed_analysis.py` computes MAE per seed (not the
+spread of individual predictions, which `pred_sd` already reports and which
+is a different, smaller number), the median-ensemble MAE, a margin-to-noise
+ratio (margin over naive divided by the standard deviation of per-seed MAE),
+a seed-count curve, and, per market, whether the beats-naive verdict changes
+depending on which single seed's fit is used.
+
+**Result.** Both unconditional-arm h=4 runs have a margin over naive below
+one seed-MAE standard deviation: GRU 0.86, RNN 0.63. Every other run/horizon
+clears 1 comfortably (2.1 to 24.9). The seed-count curve has flattened by
+k=7 everywhere (mean ensemble MAE moved under 0.5% from k=6 to k=7), so
+seven seeds looks adequate for the aggregate metric.
+
+Per-market verdict stability is worse than the aggregate numbers suggest. At
+h=4 unconditional, 9 of 15 markets (GRU) and 10 of 15 (RNN) change their
+beats-naive verdict depending on which single seed is used; at h=26
+unconditional, 9 of 15 (GRU) and 7 of 15 (RNN). Conditional is far more
+stable: 0 to 3 of 15 markets flip at any horizon. Full detail in
+`outputs/seed_analysis.csv` and `outputs/seed_count_curve.csv`.
+
+**Consequence.** A per-market ranking or claim ("this market beats the
+incumbent") drawn from the unconditional arm at h=4 or h=26 is not defensible
+as reported: a majority of markets' verdicts are a coin flip over which of
+the seven fitted seeds happened to be looked at. The seed-median aggregation
+already in `run.py` (D-11) is the right response to this, and is being used;
+the finding here is that per-market publication needs the same treatment
+applied per market, not inferred safe because the pooled run uses it. h=13
+unconditional and the whole conditional arm are comparatively stable (0 to 6
+flips of 15).
+
+**Cost.** None to compute beyond reading data already on disk. The seed-count
+enumeration is exact (all C(7,k) subsets, at most 35) rather than a
+random sample, so it is exhaustive at this seed count and would need to
+change if the seed count grows past roughly 10-12, where C(n,k) stops being
+cheap to enumerate in full.
