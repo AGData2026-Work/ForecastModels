@@ -594,3 +594,40 @@ with 9 extra scalar inputs into a 64-wide head layer.
 
 **Cost.** Two more full runs (RNN, GRU) at the full grid, ~40 min each on
 this machine per the original estimate for a comparable run.
+
+---
+
+## D-23. Build 3: remove the overfitting safeguards, raise capacity
+
+**Decision.** `configs/build3.yaml`, copied from `build2.yaml` with six
+changes and nothing else: `hidden: 128` (was 64), `head_dropout: 0.0` (was
+0.2), `input_dropout: 0.0` (was 0.1), `weight_decay: 0.0` (was 1e-4),
+`recency_half_life_weeks: null` (was 156, uniform weighting confirmed by
+`walkforward.recency_weights`'s existing `None`/`0` -> uniform branch),
+`purge_weeks: 26` (was 78).
+
+**Why.** Four of build 2's changes (D-08 purge, D-09 dropout/weight decay,
+D-12 recency weighting) were added against overfitting. The Week 0
+diagnostics point at under-learning instead: 7-11% of price movement
+explained, predictions varying a third to two thirds as much as reality, and
+more training data not helping. Removing them together is deliberate, not
+six independent bets: all six were justified by the same overfitting premise,
+so testing that premise means removing all six at once. Doing them one at a
+time would take six runs to answer one question that one run can answer
+directly, at the cost of not knowing which of the six mattered if the result
+changes.
+
+**Success criterion, fixed before looking.** Build 3 succeeds only if
+directional accuracy at h=13 rises above build 2's 60.3% (RNN) and 62.1%
+(GRU) *while average error does not worsen*. Error improvement alone is not
+success: a flatter forecast lowers MAE while sinking direction, which is the
+failure mode already visible in build 2 (D-19).
+
+**Verified before training.** Smoke run, RNN unconditional: purge applied at
+the full 26 weeks with no fallback (`split_log.csv`), 36,739 parameters (up
+from 10,243 at hidden=64), pipeline runs end to end.
+
+**Cost.** Two full runs (RNN, GRU unconditional), ~50 min each per the
+original estimate, longer than build 2 because capacity is doubled. If
+direction recovers, `conditional_exog` runs follow for build 3 as well
+(not run here yet).

@@ -1,0 +1,57 @@
+# ---------------------------------------------------------------------------
+# BUILD 3 -- remove the safeguards aimed at the wrong problem
+#
+# Copied from build2.yaml. Six changes only, all justified by the same
+# premise (see docs/DECISIONS.md D-23): the Week 0 diagnostics indicate
+# under-learning, not overfitting, so build 2's four overfitting safeguards
+# are removed and capacity is raised. Nothing else differs from build2.yaml.
+# ---------------------------------------------------------------------------
+build:
+  name: build3_underfit_corrected
+  note: >
+    Build 2 with the regularisation added against overfitting removed, since the
+    Week 0 diagnostics indicate under-learning was the binding constraint. Retains
+    the lag-52 anchors, per-horizon target scaling, seed count and refit cadence.
+    Raises capacity.
+
+data:
+  panel: data/panel_weekly.parquet
+  baseline_forecasts: data/07_panel_fe_forecasts.parquet
+  train_markets: all_in_panel
+  drop_target_dates: ["2019-04-24"]
+  price_interp_limit_weeks: 13
+
+protocol:
+  horizons: [4, 13, 26]
+  gate_horizons: [4, 13]
+  gate_threshold_pct: 5.0
+
+features:
+  climate_scheme: inverse_distance
+  fourier_k: 2
+  explicit_lag52: true
+
+model:
+  lookback: 52
+  hidden: 128                      # was 64
+  market_embedding_dim: 8
+  head_dropout: 0.0                # was 0.2
+  input_dropout: 0.0               # was 0.1
+
+training:
+  seeds: [0, 1, 2, 3, 4, 5, 6]
+  epochs: 200
+  batch_size: 256
+  lr: 0.003
+  patience: 25
+  grad_clip: 1.0
+  weight_decay: 0.0                # was 0.0001
+  lr_schedule: cosine
+  huber_delta: 1.0
+  val_fraction: 0.15
+  purge_weeks: 26                  # was 78: breaks target overlap at a quarter of the data cost
+  recency_half_life_weeks: null    # was 156
+  scale_targets: true
+  retrain_every_weeks: 13
+  min_train_windows: 200
+  seed_aggregation: median
