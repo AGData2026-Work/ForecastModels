@@ -822,3 +822,66 @@ forecastability itself.
 complete the four-row headline table (operational / forecast_drivers /
 conditional_exog / foreknowledge) that the source task asks for; not
 complete at time of writing this entry.
+
+**Result: the first cut sizes a negative prize.** Both runs complete.
+Challenger MAE, NGN/kg, full grid:
+
+| h | RNN operational | RNN forecast_drivers | RNN conditional_exog | RNN foreknowledge |
+|---|---|---|---|---|
+| 4 | 17.78 | 18.13 | 18.68 | 14.65 |
+| 13 | 34.49 | 37.14 | 40.93 | 25.52 |
+| 26 | 50.63 | 63.93 | 67.13 | 37.95 |
+
+| h | GRU operational | GRU forecast_drivers | GRU conditional_exog | GRU foreknowledge |
+|---|---|---|---|---|
+| 4 | 17.64 | 18.71 | 18.65 | 14.57 |
+| 13 | 34.24 | 38.01 | 40.49 | 25.27 |
+| 26 | 53.69 | 65.29 | 60.83 | 38.25 |
+
+`forecast_drivers` is worse than `operational` at every horizon, both
+architectures. The gap between rows one and two -- what better driver
+forecasts were supposed to buy in practice -- is negative: -0.35 to -13.30
+NGN/kg depending on horizon and architecture. The gap between rows two and
+four -- what remains on the table -- is therefore larger than the gap
+between rows one and four (operational to foreknowledge), because the
+first-cut driver forecasts actively subtract value rather than recovering
+part of the foreknowledge gain. `forecast_drivers` beats `conditional_exog`
+for RNN at every horizon but is mixed against it for GRU (better at h=13,
+worse at h=4 and h=26).
+
+**Why, most likely: the mandated upstream method (D-25 above).** Upstream
+seasonal-naive was already shown to lose to plain carry-forward by 2-3x
+(60.7 vs 20.1 NGN/kg at h=4). `forecast_drivers` is built exactly as
+specified, seasonal-naive included, so a materially worse upstream forecast
+than the simplest alternative is baked into the one run that was supposed
+to size the prize. This does not mean the prize is genuinely negative; it
+means this first cut cannot distinguish "driver forecasting doesn't help"
+from "this specific first-cut method, using a mandated component already
+shown to underperform carry-forward, doesn't help." Re-running
+`forecast_drivers` with carry-forward substituted for upstream (a one-line
+change, `realised_upstream`-style branch already exists in `build_flat`) is
+the natural next check before concluding anything about the underlying
+prize -- not done here because the task specified seasonal-naive rather
+than asking for this validation the way it did for diesel.
+
+**Each driver forecast's own accuracy, from `src/driver_forecasts.py`**
+(against realised, pooled across the scored grid): diesel RW+drift MAE
+22.8/47.2/77.5 at h=4/13/26 (beats carry-forward, D-25 above); rainfall
+climatology 4.3-5.0 (beats carry-forward by 2-8x); NDVI climatology
+0.018-0.019 (beats carry-forward by 3-13x); upstream seasonal-naive
+60.7-80.4 (loses to carry-forward by 2-3x, the outlier). Three of four
+driver forecasts are genuinely informative; the run result is nonetheless
+negative, consistent with the fourth (mandated, not chosen) component being
+weak enough to dominate the outcome.
+
+**Consequence for the "commission the multi-week version" decision.** As
+measured, this first cut argues against committing further multi-week work
+to rainfall/fuel/neighbouring-price forecasting models on the strength of
+this result alone -- but the result is confounded by one mandated,
+already-known-weak component. The task's own purpose for the first cut
+("sizes the prize... before anyone commits") is only partly served: it
+correctly identifies that naive driver-forecast substitution is not a free
+win, but it cannot yet separate "the prize is small or negative" from "the
+upstream method needs fixing first." Recommend the one-line carry-forward
+substitution as a cheap follow-up before treating this as the final answer
+on whether to commission further driver-forecasting work.
