@@ -688,6 +688,20 @@ is unaffected under build 3's higher capacity and lighter regularisation is
 now an open, answerable question rather than an assumption carried over
 from build 2.
 
+**Answered: the pattern holds under build 3 too.** RNN build3
+`conditional_exog` MAE 17.20/34.52/58.57 versus `unconditional`
+16.91/31.71/49.07 -- worse at every horizon. GRU build3 `conditional_exog`
+17.54/35.56/54.88 versus `unconditional` 16.47/30.88/48.74 -- worse at
+every horizon again. Four of four architecture/build combinations now show
+`conditional_exog` underperforming `unconditional`. This rules out D-22's
+tentative "regularisation calibrated for the wrong feature count"
+explanation as the sole cause, since build 3 removes exactly that
+regularisation and the pattern is unchanged: something about the
+diesel/rainfall/NDVI realised-driver features without the upstream anchor
+is a net negative for this architecture family regardless of capacity or
+regularisation. Worth investigating on its own terms rather than folded
+into the capacity/regularisation question build 3 was designed to answer.
+
 ---
 
 ## D-24. Split conformal intervals, and 2023-24 coverage breaks down as expected
