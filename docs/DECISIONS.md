@@ -1306,3 +1306,51 @@ to the plain operational baseline (no windows silently dropped).
 
 **Cost.** Two full runs (RNN, GRU), launched next; results in a
 following entry once complete.
+
+---
+
+## D-34. Agroclimatic build result: small, mixed, and outlier-masked at h=13
+
+**Decision/finding.** Both runs (`configs/afex_operational_agroclimatic.yaml`,
+RNN and GRU) complete. All 15 scored maize markets got a real channel this
+time (D-33), so no paired/unpaired split is needed the way D-32 required
+for sorghum.
+
+**Overall MAE, NGN/kg:**
+
+| | h=4 | h=13 | h=26 |
+|---|---|---|---|
+| RNN, no exog | 59.93 | 131.20 | 179.91 |
+| RNN, + agroclimatic | 60.84 | 130.74 | 182.39 |
+| GRU, no exog | 63.50 | 135.85 | 162.67 |
+| GRU, + agroclimatic | 62.87 | 134.56 | 167.39 |
+
+Small shifts throughout, an order of magnitude smaller than sorghum's
+effect (D-32). Both architectures improve slightly at h=13 (RNN -0.46,
+GRU -1.29). At h=4 the architectures disagree (RNN +0.91 worse, GRU -0.63
+better); at h=26 both worsen (RNN +2.48, GRU +4.72).
+
+**The h=13 aggregate understates how often this actually helps.** Per
+market (`outputs/afex_agroclimatic_vs_operational_per_market.csv`), 9 of
+14 maize markets improve for RNN and 9 of 14 for GRU at h=13. The
+aggregate is pulled back toward neutral by one extreme outlier per
+architecture: `Giwa | Maize` for RNN (+14.87 NGN/kg worse) and
+`Ikara | Maize` for GRU (+15.71 worse). Both are markets already flagged
+independently, before this build, as unreliable: Giwa is the source
+panel's own documented near-duplicate of Anchau (D-27/source
+Build_Decisions, 0.947 correlation after an 81-week repair), and Ikara is
+the thinnest, noisiest maize series in this panel (D-30, 24 scored
+windows, consistently the weakest market at every horizon regardless of
+build). A single bad cut at either market, amplified by how few windows
+each contributes, is enough to swing the pooled average.
+
+**Consequence.** Unlike sorghum (D-32), this is not a clean negative.
+Agroclimatic data helps at the majority of individual markets at h=13 for
+both architectures; the pooled headline number understates that because
+two already-known-unreliable markets absorb a large, possibly noise-
+driven hit. Worth revisiting with Giwa and/or Ikara excluded or
+down-weighted before drawing a final conclusion on this horizon. h=4 and
+h=26 do not show the same pattern and remain genuinely mixed or negative.
+
+**Cost.** Two full runs (RNN, GRU), reusing the existing walk-forward
+machinery unchanged.
