@@ -1354,3 +1354,62 @@ h=26 do not show the same pattern and remain genuinely mixed or negative.
 
 **Cost.** Two full runs (RNN, GRU), reusing the existing walk-forward
 machinery unchanged.
+
+---
+
+## D-35. Rescored excluding Giwa and Ikara, across every non-sorghum build
+
+**Decision.** `src/afex_exclude_outliers.py` rescores every saved forecast
+(operational, safeguard-removed, agroclimatic; sorghum excluded per
+instruction, since D-32 was already a clean result this would only
+confound) excluding `Giwa | Maize` and `Ikara | Maize`, chosen over a
+down-weighting scheme for consistency with this project's existing
+precedent of outright exclusion for a documented data-quality reason
+(Dandume, D-27). No retraining; reads `predictions_paired.csv` as already
+saved. Full table: `outputs/afex_excl_outliers_comparison.csv`.
+
+**Effect is horizon-dependent, and not uniformly in the expected
+direction.** At h=4, excluding these two markets makes pooled MAE
+slightly WORSE for every one of the six runs (e.g. RNN operational 59.93
+-> 61.17). Giwa and Ikara are not bad markets at every horizon; whatever
+makes them unreliable shows up at longer horizons, not short ones. At
+h=13 and h=26, exclusion improves MAE across every run, most sharply at
+h=26 (up to -7.67 NGN/kg for GRU agroclimatic, -60.56 in the opposite
+direction on the safeguard-removed delta below). This matches Ikara's
+already-documented h=26 MAE of 333-367 NGN/kg (D-30), roughly double the
+next-weakest market, dominating the pooled average at that horizon in
+particular.
+
+**Agroclimatic's case gets stronger with the exclusion, not weaker.**
+Within the excluded-outlier scope, agroclimatic beats operational at
+h=13 by a wider margin than the full-market comparison showed (RNN -1.55
+vs -0.46 before, GRU -2.16 vs -1.29 before), and its h=26 degradation
+shrinks substantially (RNN +0.25 vs +2.48 before, GRU +2.54 vs +4.72
+before). h=4 stays mixed (RNN slightly worse, GRU better), unchanged in
+direction from the full-market result. D-34's read holds and sharpens:
+this is a real, if modest, effect being partly obscured by two already-
+flagged markets, not overturned by them.
+
+**Safeguard-removed's underperformance is robust, not an artifact of
+these two markets.** The gap versus operational is if anything larger
+within the excluded scope (h=26: RNN +55.96, GRU +60.56 NGN/kg worse)
+than the full-market comparison implied. D-27's conclusion needs no
+revision.
+
+**A genuine tension, flagged rather than resolved.** At h=13, MAE
+improves when Giwa and Ikara are excluded, but directional accuracy gets
+slightly WORSE for operational and agroclimatic (RNN operational: 61.42%
+-> 60.12%; GRU operational: 52.42% -> 50.49%). These two markets were
+apparently easier to call the direction of than average at that horizon
+even while being costly in absolute error. MAE and directional accuracy
+do not move together here, consistent with this project's repeated
+finding (D-19 vs the main panel's own MAE story) that the two metrics can
+disagree and neither should be read as a proxy for the other.
+
+**Consequence.** Recommend treating the excluded-outlier figures as the
+more decision-relevant ones for h=13 and h=26 MAE reporting on this
+panel, while carrying the directional caveat above alongside them.
+h=4 conclusions should stay based on the full 15-market scope, since
+exclusion moves that horizon's numbers the wrong way.
+
+**Cost.** None; rescoring existing forecasts only.
