@@ -1473,3 +1473,6 @@ markets without an arbitrary tie-break; both pair members carry real
 information about each other.
 
 **Cost.** None; read-only correlation analysis over data already in hand.
+
+**Visual.** Published as an artifact for review: https://claude.ai/code/artifact/0e984c0a-0737-4578-b1f3-c5454030b8fe
+(private link; not part of the repo).
