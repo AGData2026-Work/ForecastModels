@@ -932,3 +932,106 @@ Full table: `outputs/taskA_operational_vs_safeguard_removed_comparison.csv`.
 
 **Not pushed.** Per instruction, none of this session's commits are pushed
 to GitHub until reviewed.
+
+---
+
+## D-27. AFEX multi-commodity farmgate panel: new workstream, price-only, no incumbent
+
+**Decision.** New loader (`src/afex_data.py`) and runner (`src/run_afex.py`)
+for `20260824_AFEX_MultiCommodity_Weekly_Panel_v1.xlsx`: 51 series across 18
+markets and 7 commodities, 277 weeks (2021-04-07 to 2026-07-22), price only.
+Built as a separate pipeline rather than bent into the FEWSNET-specific one,
+because the two datasets differ in three structural ways: no exogenous
+driver data exists here at all (the source file's own README says to start
+price-only and add drivers later); no incumbent forecast file exists, so
+the evaluation grid is generated directly from the panel
+(`generate_afex_grid`), not read from a baseline file (this is not the D-01
+mistake, since there is no incumbent grid here to diverge from); and every
+(market, commodity) pair is treated as its own embedding series (e.g.
+"Anchau | Maize", "Anchau | Sorghum"), so all 51 series train the pooled
+model but only the 16 maize series are scored (mirrors D-03's precedent:
+Aba trains, is not scored).
+
+**Data handling decisions.**
+- Diesel, upstream, rainfall and NDVI sequence channels are zero-filled so
+  `build_sequence`/`build_flat`/`build_training_windows` from `data.py`
+  reuse unchanged; the model sees these as constant, uninformative channels.
+- `Dandume | Maize` clears the source panel's own 112-week entry bar but
+  has zero usable 78-week (lookback 52 + max horizon 26) windows after
+  new-crop removal, flagged in the source file's own Build_Decisions sheet
+  as needing a decision. Dropped from training and scoring: a series that
+  can never produce an h=26 window contributes nothing and cannot be scored
+  at that horizon.
+- Fourier terms computed directly from the date index (period 52.18, k=2),
+  matching the convention in the original `build_panel.py` this project
+  descends from, since this panel carries no pre-computed sin/cos columns.
+
+**Two settings run, both architectures, full grid:**
+
+| Run | h=4 MAE | h=13 MAE | h=26 MAE | h=4 MAPE | h=13 MAPE | h=26 MAPE |
+|---|---|---|---|---|---|---|
+| RNN operational | 59.93 | 131.20 | 179.91 | 13.00 | 25.24 | 34.53 |
+| GRU operational | 63.50 | 135.85 | 162.67 | 13.72 | 26.31 | 31.07 |
+| RNN safeguard-removed | 62.59 | 153.53 | 233.74 | 13.47 | 29.68 | 46.21 |
+| GRU safeguard-removed | 65.01 | 155.02 | 223.29 | 14.18 | 30.39 | 44.13 |
+
+Naive (carry-forward) benchmark: 57.60 / 135.37 / 177.74 MAE at h=4/13/26.
+
+**Finding: the main panel's safeguard-removed result reverses here.**
+Safeguard-removed is worse than operational at every horizon for both
+architectures on this panel -- the opposite of D-23's result on the main
+FEWSNET panel, where it improved MAE everywhere. Plausible reading: D-23's
+diagnosis (under-learning, so remove the anti-overfitting safeguards and
+raise capacity) was reached on a panel with roughly 5,000 training windows
+per cut by the later years; this panel's pooled training set peaks around
+2,850 windows at the very last cut and is far smaller earlier. A larger,
+less-regularised model on a fifth of the data (by span) and a much thinner
+per-series history looks like it is overfitting rather than under-learning.
+Operational settings (build2-equivalent) are the better choice on this
+panel as measured, which is itself informative: the right amount of
+regularisation is a function of how much data is available, not a fixed
+property of the RNN/GRU architecture family.
+
+Neither setting clearly beats carry-forward: operational is worse at h=4,
+roughly level at h=13, and RNN operational beats naive at h=26 (179.91 vs
+177.74, essentially a tie) while GRU operational is genuinely better there
+(162.67 vs 177.74, +8.5%). This is a much harder result than the main panel
+produced, consistent with 277 weeks of history being a fraction of the
+main panel's twelve years.
+
+**A split-logic interaction worth flagging.** Several operational-setting
+cuts show a validation set larger than the training set (e.g. RNN
+operational cut 11: train=212, val=397). `chronological_split` fixes
+validation at 15% of the pre-purge window count and only prunes training
+windows near the cutoff; with `purge_weeks=78` on a panel this short, and
+per-series histories that start and end unevenly across the five-year span
+(several maize series stop reporting in 2024), purge can remove a very
+large share of the training pool while validation stays fixed. This never
+happened on the main 12-year panel, where the training pool was always
+large relative to a 78-week purge. Early-stopping decisions in the affected
+cuts should be read cautiously. Safeguard-removed (`purge_weeks=26`) does
+not show this issue in any cut.
+
+**Deliverable.**
+`outputs/20260910_AFEX_PredictedVsActual_OperationalVsSafeguardRemoved_v1.xlsx`:
+headline MAE/MAPE by horizon, by calendar quarter, by maize series, and a
+full predicted-vs-actual detail sheet (10,740 rows) for every scored
+forecast across all four runs.
+
+**Roadblocks and open decisions, for the owner.**
+1. No exogenous variables decided yet (explicitly deferred by the owner);
+   this run is price-only throughout.
+2. The panel file itself lives outside the repo
+   (`~/Downloads/20260824_AFEX_MultiCommodity_Weekly_Panel_v1.xlsx`,
+   referenced by absolute path in the two new configs) and has not been
+   copied into `data/`. Worth deciding whether it should be, for
+   reproducibility on another machine.
+3. Giwa | Maize is flagged by the source panel itself as a near-duplicate
+   of Anchau | Maize (correlation +0.947 after an 81-week repair); it is
+   currently kept in both training and scoring, unfiltered, matching the
+   source file's own default. A decision to exclude it would be a one-line
+   change in `afex_data.py`.
+4. `RNN_conditional`/`GRU_conditional` on the main FEWSNET panel remain on
+   the pre-D17 grid (D-26); not touched in this pass.
+5. **Not pushed.** All commits in this entry and D-26 are local only, per
+   instruction, pending review.

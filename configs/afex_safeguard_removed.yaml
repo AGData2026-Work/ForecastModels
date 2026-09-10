@@ -1,0 +1,49 @@
+# ---------------------------------------------------------------------------
+# AFEX multi-commodity farmgate panel, "safeguard removed" settings.
+#
+# Same six changes as configs/build3.yaml relative to build2: capacity
+# doubled, the four overfitting safeguards (dropout, weight decay, recency
+# weighting, the 78-week purge) removed or reduced. Applied here to see
+# whether build 3's result (D-23: better MAE and h=13 direction on the main
+# panel) carries over to this shorter, lower-count-per-series dataset.
+# ---------------------------------------------------------------------------
+build:
+  name: afex_safeguard_removed
+  note: >
+    AFEX farmgate panel, price-only, same hyperparameters as build3's
+    unconditional arm (capacity doubled, overfitting safeguards removed).
+
+data:
+  panel: /Users/augmentumadvisory/Downloads/20260824_AFEX_MultiCommodity_Weekly_Panel_v1.xlsx
+
+protocol:
+  horizons: [4, 13, 26]
+
+features:
+  fourier_k: 2
+  explicit_lag52: true
+
+model:
+  lookback: 52
+  hidden: 128                      # was 64
+  market_embedding_dim: 8
+  head_dropout: 0.0                # was 0.2
+  input_dropout: 0.0               # was 0.1
+
+training:
+  seeds: [0, 1, 2, 3, 4, 5, 6]
+  epochs: 200
+  batch_size: 256
+  lr: 0.003
+  patience: 25
+  grad_clip: 1.0
+  weight_decay: 0.0                # was 0.0001
+  lr_schedule: cosine
+  huber_delta: 1.0
+  val_fraction: 0.15
+  purge_weeks: 26                  # was 78
+  recency_half_life_weeks: null    # was 156
+  scale_targets: true
+  retrain_every_weeks: 13
+  min_train_windows: 200
+  seed_aggregation: median
