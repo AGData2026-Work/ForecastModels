@@ -1413,3 +1413,63 @@ h=4 conclusions should stay based on the full 15-market scope, since
 exclusion moves that horizon's numbers the wrong way.
 
 **Cost.** None; rescoring existing forecasts only.
+
+---
+
+## D-36. Upstream lead-lag analysis: mostly 1-week transmission, two real cycles, one weak outlier
+
+**Decision.** Model left unchanged (owner instruction: analysis only,
+nothing retrained). `src/afex_upstream_lag_analysis.py` cross-correlates
+every ordered pair of maize markets' weekly log-return series at lags -13
+to +13 weeks (returns, not price levels, for the same reason as D-31's
+sibling-commodity screen: levels share a common inflation trend that would
+swamp any real lead-lag signal). For each market, the best upstream
+candidate is the market with the highest correlation at a strictly
+positive lag (a real lead, not a contemporaneous or reverse relationship).
+This sizes a possible future exogenous variable analogous to the original
+FEWSNET/NADIH panel's own `upstream_price`/`upstream_market`/
+`upstream_lag_weeks` design, discovered from this panel's data rather than
+assumed. Full detail: `outputs/afex_upstream_lag_full_detail.csv`
+(every pair, every lag); per-pair best lag:
+`outputs/afex_upstream_lag_best_per_pair.csv`; the practical result, one
+row per market: `outputs/afex_upstream_lag_tree.csv`.
+
+**Result: 14 of 16 markets' best lead is exactly 1 week.** Correlations
+range 0.33 to 0.55 at that lag, comfortably above noise given 88-206
+overlapping weeks per pair. One market (`Ikara`, best upstream `Bali`)
+resolves at 2 weeks. One result is a clear outlier and should not be
+trusted at face value: `Anchau`'s best positive-lag correlate is
+`Dandume` at 12 weeks, correlation 0.25 -- both notably weaker (half the
+typical correlation) and thinner (n=88, versus 111-206 for every other
+pair) than the rest of the table, and a 12-week transmission lag has no
+obvious logistics-based explanation the way a 1-2 week lag (typical
+travel time between nearby wholesale markets) does. Flagged, not used.
+
+**Not a clean tree: two real cycles at the core.** Checked for cycles of
+any length, not just mutual pairs. Two found: `Leggal -> Jengre -> Giwa ->
+Leggal` (each leads the next by 1 week) and `Bali <-> Ikara` (Bali leads
+Ikara by 1 week at 0.47 correlation, Ikara leads Bali by 2 weeks at 0.31 --
+the two markets move together closely enough that a single best-predecessor
+metric cannot cleanly rank them). The rest of the panel branches off these
+two cores as a directed forest: `Leggal` also leads `Dandume`, `Kumo` and
+`Jalingo`; `Dandume` leads `Anchau` (the weak edge above); `Anchau` leads
+`Pambegua` and `Tundun Saibu`; `Tundun Saibu` leads `Dawanau`; `Jengre`
+leads `Saminaka`; `Ikara` also leads `Danja` and `Gazabu`; `Gazabu` leads
+`Garbabi`. Read as: two tightly-coupled local market clusters (plausibly
+geographically close, fast bidirectional price transmission) each feeding
+a chain of more distant markets at the same 1-week step, not a strict
+single-root hierarchy.
+
+**Consequence, for a future build.** A 1-week-lagged neighbouring-market
+maize price is the most defensible first exogenous candidate this
+analysis supports -- short, consistent, well above noise for 15 of 16
+markets. This is structurally the same idea already tried and found
+harmful for a DIFFERENT source (sorghum, D-32); whether a same-commodity,
+correctly-lagged neighbour price fares better is an open, answerable
+question for the next build, not assumed from D-32's result. The
+`Leggal`/`Jengre`/`Giwa` and `Bali`/`Ikara` cycles mean a single
+market cannot always be picked as "the" upstream source for those
+markets without an arbitrary tie-break; both pair members carry real
+information about each other.
+
+**Cost.** None; read-only correlation analysis over data already in hand.
