@@ -885,3 +885,50 @@ win, but it cannot yet separate "the prize is small or negative" from "the
 upstream method needs fixing first." Recommend the one-line carry-forward
 substitution as a cheap follow-up before treating this as the final answer
 on whether to commission further driver-forecasting work.
+
+---
+
+## D-26. Grid consistency completed: GRU unconditional rerun with D-17, operational vs safeguard-removed compared in full
+
+**Decision.** `GRU_unconditional` (build2) reran with the D-17 origin-date
+fix already in the code (it had been sitting on the pre-fix 1,592-pair
+grid since D-17 landed after its original run). All four "operational"
+(build2 unconditional) and "safeguard-removed" (build3 unconditional) runs
+-- RNN and GRU, both settings -- are now on the same 1,590-pair grid.
+`RNN_conditional` and `GRU_conditional` (build2, foreknowledge) remain on
+the pre-fix 1,592-pair grid; left as is, since foreknowledge is not the
+current priority and re-running them was explicitly out of scope for this
+pass.
+
+**Full comparison, MAE and MAPE, all four runs, same grid:**
+
+| h | RNN operational | RNN safeguard-removed | GRU operational | GRU safeguard-removed |
+|---|---|---|---|---|
+| 4 (MAE) | 17.78 | 16.91 | 17.66 | 16.47 |
+| 13 (MAE) | 34.49 | 31.71 | 34.28 | 30.88 |
+| 26 (MAE) | 50.63 | 49.07 | 53.74 | 48.74 |
+| 4 (MAPE) | 9.65 | 9.45 | 9.78 | 9.27 |
+| 13 (MAPE) | 18.01 | 17.57 | 18.15 | 16.96 |
+| 26 (MAPE) | 24.85 | 26.42 | 25.81 | 25.11 |
+
+**Safeguard-removed vs operational, same architecture (MAE delta, negative
+is an improvement):** RNN -0.87/-2.78/-1.57 at h=4/13/26; GRU
+-1.19/-3.40/-5.00. Both architectures improve at every horizon under
+safeguard-removed settings on this panel, GRU by a larger margin at h=26.
+Matches D-23's finding, now confirmed on the grid-consistent data.
+
+**GRU vs RNN, same setting (MAE delta, negative is GRU better):**
+operational -0.12/-0.22/+3.11 (GRU better at h=4/13, RNN better at h=26 by
+3.11 NGN/kg); safeguard-removed -0.44/-0.83/-0.33 (GRU better at every
+horizon, though by less than one NGN/kg at h=4 and h=26). No architecture
+dominates cleanly; GRU has a slight, mostly small edge, except operational
+h=26 where RNN is meaningfully ahead. MAPE tells a mixed story too:
+RNN safeguard-removed has the highest h=26 MAPE (26.42%) despite a lower
+MAE than GRU operational (53.74) at that horizon, since MAPE and MAE do not
+always rank the same way (CLAUDE.md's own caution, restated by
+`error_analysis.py`'s README: MAPE weights the low-price years more).
+
+Full table: `outputs/taskA_operational_vs_safeguard_removed_comparison.csv`.
+
+**Not pushed.** Per instruction, none of this session's commits are pushed
+to GitHub until reviewed.
