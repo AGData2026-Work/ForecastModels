@@ -1035,3 +1035,112 @@ forecast across all four runs.
    the pre-D17 grid (D-26); not touched in this pass.
 5. **Not pushed.** All commits in this entry and D-26 are local only, per
    instruction, pending review.
+
+---
+
+## D-28. AFEX workstream: safeguard-removed discontinued, operational only going forward
+
+**Decision.** No further AFEX runs under `configs/afex_safeguard_removed.yaml`.
+`configs/afex_operational.yaml` is the only setting used from here on for
+this panel. This mirrors D-16's precedent on the main panel (version 1
+discontinued, its config and outputs retained as evidence): both
+`afex_safeguard_removed` run folders and its config are kept, unchanged,
+as the only evidence of what that setting did here.
+
+**Why.** D-27 already found safeguard-removed worse than operational at
+every horizon, both architectures, on this panel -- the reverse of the
+main panel's result. The owner's read, which this decision follows: real
+need for the four overfitting safeguards on a panel this size, so there is
+no live question left for safeguard-removed to answer here. Running it
+further consumes compute without informing a decision. If the panel grows
+substantially (more history, or exogenous variables that change the
+effective sample size per cut), that premise could change and
+safeguard-removed could be worth revisiting -- the config is kept for
+exactly that reason.
+
+**Everything from here (price direction analysis, per-market error
+analysis) uses the operational runs only** (`outputs/afex_operational/RNN`
+and `outputs/afex_operational/GRU`), reading their existing saved
+forecasts rather than retraining.
+
+---
+
+## D-29. Price direction analysis: operational models mostly fail against the panel's own move share
+
+**Decision/finding.** `src/afex_directional.py` scores each operational
+run's directional accuracy against the panel's own always-up/always-down
+share (the correct benchmark, not 50% and not the do-nothing forecast --
+see below), per horizon and per market, maize only.
+
+**Why "vs the do-nothing variant" needed reframing.** The do-nothing
+(carry-forward) forecast predicts exactly zero change at every origin by
+construction, so it never asserts a direction at all: scored the same way
+the model is, its directional accuracy is 0% on every window where price
+actually moved. That is not a real comparison, it is a restatement that a
+flat forecast has no opinion. The comparison that means something, and the
+one already used for the main panel (D-19), is against the share of
+windows where price actually rose or fell.
+
+**Overall result, maize, all markets pooled:**
+
+| Run | h | Model direction % | Always-up share % | Beats always-up/down? |
+|---|---|---|---|---|
+| RNN operational | 4 | 40.82 | 59.66 | No |
+| RNN operational | 13 | 61.42 | 58.66 | **Yes** (+2.8 pts) |
+| RNN operational | 26 | 42.89 | 64.47 | No |
+| GRU operational | 4 | 35.15 | 59.66 | No |
+| GRU operational | 13 | 52.42 | 58.66 | No |
+| GRU operational | 26 | 56.55 | 64.47 | No |
+
+**5 of 6 combinations fail.** Only RNN at h=13 clears the benchmark.
+GRU at h=4 scores 35.15%, below a 50% coin flip and 24.5 points below the
+59.66% always-up share -- worse than useless at calling direction at that
+horizon, not merely unhelpful. RNN is the stronger architecture for
+direction on this panel at every horizon (40.8/61.4/42.9 vs GRU's
+35.2/52.4/56.6), the reverse of the error-rate picture in D-27 where
+neither architecture dominated cleanly.
+
+**Per-market detail makes the always-up bar itself informative.** Several
+of the thinner, earlier-truncated maize series (Ikara, Ikara ends
+2025-10-08; Garbabi, Gazabu, Jalingo, Leggal, all ending in 2024) show
+always-up shares of 70-100% at h=26, because their last scored windows sit
+in a narrow, consistently-rising late stretch of a short series. Beating a
+90%+ base rate is a high bar by construction, not a fair test of the
+model at those series specifically; the pooled figures above are a fairer
+read than any single thin market's row. Full detail in
+`outputs/afex_directional_by_market.csv`.
+
+**Consequence.** As it stands, neither operational model has a
+directional edge worth reporting outside of RNN at three months. This
+sits alongside D-27's error-rate finding (GRU edges out on MAE at h=26,
+RNN roughly ties on MAE elsewhere): the two metrics do not point at the
+same architecture, which is itself worth keeping in mind before picking
+one over the other for this panel.
+
+---
+
+## D-30. Per-market error analysis, operational runs, maize only
+
+**Decision.** Consolidated `metrics_by_market.csv` from both operational
+runs into `outputs/afex_operational_per_market_error.csv`, RNN and GRU
+side by side, per horizon. No commodity breakdown beyond maize: the other
+six commodities train the pooled embedding but are never scored, so there
+is no actual-vs-predicted to compare them against (see D-27).
+
+**Result.** At h=26, GRU has lower MAE than RNN at every one of the 14
+maize markets, matching D-27's aggregate finding that GRU pulls ahead at
+the longest horizon. At h=4 and h=13 the picture is mixed and RNN wins in
+most markets, though not uniformly.
+
+`Ikara | Maize` is the weakest market at every horizon by a wide margin
+(MAE 333.53 GRU / 366.76 RNN at h=26, roughly double the next-weakest
+market), and also the thinnest (24 scored windows, series ends
+2025-10-08). `Pambegua | Maize` looks like the strongest market at every
+horizon, but rests on only 5 scored windows -- too few to trust as a
+genuine result rather than a favourable sample. Per this project's own
+established caution (`error_analysis.py`'s README note on the main panel:
+"treat per-market rankings as indicative, not decisive"), the same applies
+here more strongly, since several AFEX maize series carry under 15 scored
+windows per horizon.
+
+**Cost.** None; reused existing saved forecasts, no retraining.
