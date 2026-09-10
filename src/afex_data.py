@@ -5,13 +5,33 @@ Loader for the AFEX multi-commodity weekly farmgate panel: 51 series across
 Structurally different from the FEWSNET/NADIH panel the rest of this repo is
 built around, in three ways that matter:
 
-1.  No diesel, rainfall or NDVI data exists for this panel; those three
-    sequence channels stay zero-filled so build_sequence, build_flat and
-    build_training_windows from data.py can be reused unchanged. The
-    upstream-market channel CAN be populated, though: see
-    `sibling_commodity` below. The source file's own README says to start
-    price-only and add drivers later, so the remaining gaps are by design,
-    not an oversight.
+1.  No diesel data exists for this panel; that sequence channel stays
+    zero-filled. Rainfall and NDVI CAN be populated (see `ndvi_path`/
+    `rainfall_path` below), and the upstream-market channel can carry a
+    sibling commodity (see `sibling_commodity` below). The source file's
+    own README says to start price-only and add drivers later, so the
+    remaining gaps are by design, not an oversight.
+
+    `ndvi_path`/`rainfall_path` (both required together, with
+    `climate_state_map_path`): UN Data Exchange dekadal (10-day) state-level
+    series. Both source files identify locations only by codes NG001-NG037,
+    with no state-name legend in either workbook -- flagged by whoever
+    cleaned them as a "GEOGRAPHY BLOCKER" rather than guessed. Resolved via
+    a THIRD file, `climate_state_map_path` (a version of the NDVI source
+    that does carry a State column), which gives an unambiguous
+    alphabetical NG001=Abia .. NG037=Zamfara mapping (verified: one state
+    per code, 37 distinct pairs) and is applied to the rainfall file too,
+    since it uses the identical code scheme. See DECISIONS D-33.
+    Resampled from dekadal to this panel's weekly grid by linear
+    interpolation, then forward-filled past the source's last real date
+    (both sources run out a few months before this panel does) -- a real
+    coverage gap, logged in `panel.log["agroclimatic"]`, not hidden.
+
+    IMPORTANT: build_sequence has no NaN-safety on the raw rainfall/NDVI
+    channels (unlike diesel, which degrades to zero via a safe log-ratio) --
+    any NaN in these arrays would silently reject the whole window. These
+    arrays are therefore always zero-initialised and only ever overwritten
+    with real, finite values; never left as NaN.
 
     `sibling_commodity` (e.g. "Sorghum") repurposes the upstream channel:
     where a maize market also has that commodity's own series, the
@@ -52,8 +72,35 @@ FOURIER_PERIOD = 52.18
 FOURIER_K = 2
 
 
+def _dekadal_state_series(source_path: str | Path, sheet: str, value_col: str,
+                          code_to_state: dict[str, str],
+                          target_dates: pd.DatetimeIndex) -> pd.DataFrame:
+    """UN Data Exchange dekadal (10-day) series, Location Code x Date, mapped
+    to state names and resampled onto target_dates (linear interpolation
+    between dekadal observations, then forward-filled past the source's
+    last date to cover the tail gap -- the source runs out a few months
+    before the AFEX panel does; this is a real coverage gap, logged in the
+    caller, not hidden by the interpolation)."""
+    raw = pd.read_excel(source_path, sheet_name=sheet)
+    raw = raw.copy()
+    raw["state"] = raw["Location Code"].map(code_to_state)
+    raw = raw.dropna(subset=["state"])
+    wide = raw.pivot_table(index="Date", columns="state", values=value_col, aggfunc="first")
+    full_idx = pd.date_range(wide.index.min(),
+                             max(wide.index.max(), target_dates.max()), freq="D")
+    wide = wide.reindex(full_idx)
+    last_real_date = wide.dropna(how="all").index.max()
+    wide = wide.interpolate(method="linear", limit_area="inside").ffill()
+    out = wide.reindex(target_dates)
+    out.attrs["last_real_date"] = str(last_real_date.date())
+    return out
+
+
 def load_afex_panel(path: str | Path, drop_zero_window_series: bool = True,
-                    sibling_commodity: str | None = None) -> Panel:
+                    sibling_commodity: str | None = None,
+                    ndvi_path: str | Path | None = None,
+                    rainfall_path: str | Path | None = None,
+                    climate_state_map_path: str | Path | None = None) -> Panel:
     df = pd.read_excel(path, sheet_name="Panel_Long", parse_dates=["date"])
     dates = pd.DatetimeIndex(sorted(df["date"].unique()))
     step = pd.Series(np.diff(dates).astype("timedelta64[D]").astype(int))
@@ -61,6 +108,7 @@ def load_afex_panel(path: str | Path, drop_zero_window_series: bool = True,
         raise ValueError(f"AFEX panel date index is not a clean weekly grid: {step.unique()}")
 
     df = df.copy()
+    market_state = df.groupby("market")["state"].first().to_dict()
     df["series"] = df["market"] + " | " + df["commodity"]
     series = sorted(df["series"].unique())
 
@@ -95,6 +143,40 @@ def load_afex_panel(path: str | Path, drop_zero_window_series: bool = True,
         fourier_cols.append(np.sin(2 * np.pi * k * t / FOURIER_PERIOD))
         fourier_cols.append(np.cos(2 * np.pi * k * t / FOURIER_PERIOD))
     fourier = np.column_stack(fourier_cols)
+
+    rainfall_arr = zeros.copy()
+    ndvi_arr = zeros.copy()
+    climate_log = {"requested": bool(ndvi_path or rainfall_path),
+                  "states_covered": [], "states_missing": [], "last_real_date": {}}
+    if ndvi_path or rainfall_path:
+        if not (ndvi_path and rainfall_path and climate_state_map_path):
+            raise ValueError("ndvi_path, rainfall_path and climate_state_map_path must all be "
+                             "given together: rainfall has no state labels of its own and "
+                             "needs the NDVI-with-states file's Location Code -> State mapping "
+                             "(see docs/DECISIONS.md on the UN Data Exchange geography blocker)")
+        code_map_df = pd.read_excel(climate_state_map_path, sheet_name="Sheet1")
+        code_to_state = (code_map_df[["Location Code", "State"]].drop_duplicates()
+                        .set_index("Location Code")["State"].to_dict())
+
+        ndvi_wide = _dekadal_state_series(ndvi_path, "Cleaned Data", "NDVI", code_to_state, dates)
+        rain_wide = _dekadal_state_series(rainfall_path, "Cleaned Data", "Rainfall (mm)",
+                                          code_to_state, dates)
+        climate_log["last_real_date"] = {"ndvi": ndvi_wide.attrs.get("last_real_date"),
+                                         "rainfall": rain_wide.attrs.get("last_real_date")}
+
+        needed_states = sorted(set(market_state.get(m.split(" | ")[0]) for m in series))
+        for st in needed_states:
+            if st in ndvi_wide.columns and st in rain_wide.columns:
+                climate_log["states_covered"].append(st)
+            else:
+                climate_log["states_missing"].append(st)
+
+        for j, m in enumerate(series):
+            st = market_state.get(m.split(" | ")[0])
+            if st in ndvi_wide.columns:
+                ndvi_arr[:, j] = ndvi_wide[st].to_numpy(dtype=float)
+            if st in rain_wide.columns:
+                rainfall_arr[:, j] = rain_wide[st].to_numpy(dtype=float)
 
     has_upstream = np.zeros(len(series), dtype=bool)
     upstream = zeros.copy()
@@ -136,16 +218,21 @@ def load_afex_panel(path: str | Path, drop_zero_window_series: bool = True,
         "price_cells_total": int(price.size),
         "series_dropped": drop_log,
         "sibling_commodity": sibling_log,
+        "agroclimatic": climate_log,
         "driver_channels": (
-            f"upstream channel = {sibling_commodity} price at the same market, "
-            f"{len(sibling_log['maize_markets_paired'])} of "
-            f"{len(sibling_log['maize_markets_paired']) + len(sibling_log['maize_markets_unpaired'])} "
-            "maize markets paired; diesel, rainfall, NDVI still zero-filled"
-        ) if sibling_commodity else
-        "none: diesel, upstream, rainfall, NDVI all zero-filled; no source data for this panel",
+            (f"upstream channel = {sibling_commodity} price at the same market, "
+             f"{len(sibling_log['maize_markets_paired'])} of "
+             f"{len(sibling_log['maize_markets_paired']) + len(sibling_log['maize_markets_unpaired'])} "
+             "maize markets paired; " if sibling_commodity else "upstream channel unused; ")
+            + (f"rainfall/NDVI channels = state-level UN Data Exchange series (states covered: "
+               f"{climate_log['states_covered']}, missing: {climate_log['states_missing']}, "
+               f"real data through {climate_log['last_real_date']}, forward-filled after that); "
+               if climate_log["requested"] else "rainfall/NDVI channels zero-filled; ")
+            + "diesel still zero-filled (no source data attached for this panel)"
+        ),
     }
     return Panel(dates, series, pos, midx, price, price_filled,
-                 zeros.copy(), upstream, zeros.copy(), zeros.copy(),
+                 zeros.copy(), upstream, rainfall_arr, ndvi_arr,
                  fourier, has_upstream, log)
 
 

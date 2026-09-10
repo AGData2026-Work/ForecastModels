@@ -102,7 +102,10 @@ def main() -> None:
     out.mkdir(parents=True, exist_ok=True)
 
     panel = load_afex_panel(a.panel or cfg["data"]["panel"],
-                            sibling_commodity=cfg["data"].get("sibling_commodity"))
+                            sibling_commodity=cfg["data"].get("sibling_commodity"),
+                            ndvi_path=cfg["data"].get("ndvi_path"),
+                            rainfall_path=cfg["data"].get("rainfall_path"),
+                            climate_state_map_path=cfg["data"].get("climate_state_map_path"))
     grid = generate_afex_grid(panel, H, L)
     train_ids = list(range(len(panel.markets)))
 

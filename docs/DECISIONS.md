@@ -1247,3 +1247,62 @@ raw series in.
 
 **Cost.** Two full runs (RNN, GRU), reusing the existing walk-forward
 machinery unchanged.
+
+---
+
+## D-33. Rainfall/NDVI geography blocker resolved; agroclimatic build launched
+
+**Decision.** Both `UN_DataExchange_NDVI_cleaned.xlsx` and
+`UN_DataExchange_Rainfall_cleaned.xlsx` identify their 37 locations by
+code (`NG001`-`NG037`) only. Whoever cleaned these files had already
+flagged this correctly as a "GEOGRAPHY BLOCKER" in both workbooks' own
+Cleaning Log sheets and declined to guess an ordering. Before proceeding,
+I searched independently for a public, verifiable code-to-state mapping
+(confirmed the code scheme matches UN OCHA's Nigeria COD-AB pcode system;
+found partial admin2-count evidence for 2 of 37 codes via FAO microdata
+that was suggestive but not conclusive) and did not find one I was
+willing to act on without guessing. The owner then supplied a third file,
+`20260806_NDVI with States_v0.xlsx`, which carries the same Location Code
+alongside an explicit State column. Verified: 37 distinct codes, exactly
+one state per code, no ambiguity (`NG001`=Abia ... `NG037`=Zamfara,
+alphabetical). Applied to the rainfall file too, since it uses the
+identical code scheme and is described in the NDVI file's own quality
+scorecard as "the companion UN Rainfall source."
+
+**Why this took a real check rather than an assumption.** Guessing wrong
+here (e.g. an alphabetical ordering that happened to be off by one, or a
+regional grouping) would have silently attached the wrong state's
+rainfall to a market -- a corruption exactly as damaging as, and far
+harder to detect than, D-01's grid-regeneration mistake. The blocker is
+now resolved with a verified source, not an assumption.
+
+**Merge.** `afex_data.py`'s `load_afex_panel` gained `ndvi_path`/
+`rainfall_path`/`climate_state_map_path` (all required together).
+Dekadal (10-day) series resampled to this panel's weekly grid by linear
+interpolation, then forward-filled past each source's last real
+observation (NDVI: 2026-05-11, rainfall: 2026-06-01) to cover the ~7-11
+week tail gap to the panel's 2026-07-22 end -- a real, logged coverage
+gap (`panel.log["agroclimatic"]`), not hidden. All 6 states the AFEX
+maize markets sit in (Gombe, Kaduna, Kano, Katsina, Plateau, Taraba) are
+covered, so every one of the 15 scored maize markets gets a real channel
+-- unlike the sorghum build (D-32), which only reached 7 of 15.
+
+**A code-level caution acted on, not just noted.** `build_sequence` has
+no NaN-safety on the raw rainfall/NDVI channels (unlike diesel, which
+degrades to zero via a safe log-ratio): any NaN in these arrays would
+silently reject the entire window rather than degrade gracefully. The
+arrays are zero-initialised and only ever overwritten with real, finite
+values, verified by direct check before running anything
+(`np.isfinite(...).all()` confirmed true for both channels across the
+full panel).
+
+**Build.** `configs/afex_operational_agroclimatic.yaml`: operational
+hyperparameters, rainfall and NDVI as origin-time exogenous channels
+(never the forecast window, so not foreknowledge), sibling-commodity
+crosscheck (D-31/D-32) deliberately left out of this build -- one change
+at a time, per instruction, so this result cannot be confounded with
+sorghum's already-negative one. Smoke-verified: window counts identical
+to the plain operational baseline (no windows silently dropped).
+
+**Cost.** Two full runs (RNN, GRU), launched next; results in a
+following entry once complete.
