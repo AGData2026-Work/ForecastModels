@@ -5,12 +5,25 @@ Loader for the AFEX multi-commodity weekly farmgate panel: 51 series across
 Structurally different from the FEWSNET/NADIH panel the rest of this repo is
 built around, in three ways that matter:
 
-1.  No diesel, rainfall, NDVI or upstream-market data exists for this panel.
-    Those four sequence channels are zero-filled so build_sequence,
-    build_flat and build_training_windows from data.py can be reused
-    unchanged; the model sees them as constant, uninformative channels
-    rather than missing ones. The source file's own README says to start
-    price-only and add drivers later, so this is by design, not a gap.
+1.  No diesel, rainfall or NDVI data exists for this panel; those three
+    sequence channels stay zero-filled so build_sequence, build_flat and
+    build_training_windows from data.py can be reused unchanged. The
+    upstream-market channel CAN be populated, though: see
+    `sibling_commodity` below. The source file's own README says to start
+    price-only and add drivers later, so the remaining gaps are by design,
+    not an oversight.
+
+    `sibling_commodity` (e.g. "Sorghum") repurposes the upstream channel:
+    where a maize market also has that commodity's own series, the
+    channel carries that series' price history over the same 52-week
+    lookback as maize's own price -- never the forecast window, so this
+    is not foreknowledge, exactly as available at deployment time as
+    maize's own price history is. Chosen by correlation screening
+    (DECISIONS D-31): sorghum co-moves with maize far more than any other
+    commodity in this panel (0.86 at 13-week changes, pooled, vs 0.45 for
+    soybean, the next best) and pairs with 7 of the 15 scored maize markets
+    (Dandume, dropped from scoring above, would have made 8 of 16 before
+    that drop).
 
 2.  No incumbent forecast file exists, so there is nothing to read an
     evaluation grid from the way load_grid reads 07_panel_fe_forecasts.parquet
@@ -39,7 +52,8 @@ FOURIER_PERIOD = 52.18
 FOURIER_K = 2
 
 
-def load_afex_panel(path: str | Path, drop_zero_window_series: bool = True) -> Panel:
+def load_afex_panel(path: str | Path, drop_zero_window_series: bool = True,
+                    sibling_commodity: str | None = None) -> Panel:
     df = pd.read_excel(path, sheet_name="Panel_Long", parse_dates=["date"])
     dates = pd.DatetimeIndex(sorted(df["date"].unique()))
     step = pd.Series(np.diff(dates).astype("timedelta64[D]").astype(int))
@@ -83,6 +97,32 @@ def load_afex_panel(path: str | Path, drop_zero_window_series: bool = True) -> P
     fourier = np.column_stack(fourier_cols)
 
     has_upstream = np.zeros(len(series), dtype=bool)
+    upstream = zeros.copy()
+    sibling_log = {"requested": sibling_commodity, "maize_markets_paired": [],
+                   "maize_markets_unpaired": []}
+    if sibling_commodity:
+        # Repurposes the "upstream" channel exactly as the main pipeline uses
+        # it: a related price series the model may find informative. Here
+        # the relation is a sibling commodity at the SAME market, not a
+        # different market for the same commodity. Populated for MAIZE
+        # series only (the only series that get scored); channel is the
+        # sibling's own price history, over the same 52-week lookback,
+        # never the forecast window, so this carries no foreknowledge --
+        # it is exactly as available at deployment time as maize's own
+        # price history is.
+        for m in sorted(set(s.split(" | ")[0] for s in series if s.endswith("| Maize"))):
+            maize_col = f"{m} | Maize"
+            sib_col = f"{m} | {sibling_commodity}"
+            j_maize = midx.get(maize_col)
+            j_sib = midx.get(sib_col)
+            if j_maize is None:
+                continue
+            if j_sib is not None:
+                upstream[:, j_maize] = price[:, j_sib]
+                has_upstream[j_maize] = True
+                sibling_log["maize_markets_paired"].append(m)
+            else:
+                sibling_log["maize_markets_unpaired"].append(m)
 
     log = {
         "panel_path": str(path),
@@ -95,10 +135,17 @@ def load_afex_panel(path: str | Path, drop_zero_window_series: bool = True) -> P
         "price_cells_observed": int(np.isfinite(price).sum()),
         "price_cells_total": int(price.size),
         "series_dropped": drop_log,
-        "driver_channels": "none: diesel, upstream, rainfall, NDVI all zero-filled; no source data for this panel",
+        "sibling_commodity": sibling_log,
+        "driver_channels": (
+            f"upstream channel = {sibling_commodity} price at the same market, "
+            f"{len(sibling_log['maize_markets_paired'])} of "
+            f"{len(sibling_log['maize_markets_paired']) + len(sibling_log['maize_markets_unpaired'])} "
+            "maize markets paired; diesel, rainfall, NDVI still zero-filled"
+        ) if sibling_commodity else
+        "none: diesel, upstream, rainfall, NDVI all zero-filled; no source data for this panel",
     }
     return Panel(dates, series, pos, midx, price, price_filled,
-                 zeros.copy(), zeros.copy(), zeros.copy(), zeros.copy(),
+                 zeros.copy(), upstream, zeros.copy(), zeros.copy(),
                  fourier, has_upstream, log)
 
 

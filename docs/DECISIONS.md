@@ -1144,3 +1144,106 @@ here more strongly, since several AFEX maize series carry under 15 scored
 windows per horizon.
 
 **Cost.** None; reused existing saved forecasts, no retraining.
+
+---
+
+## D-31. Sibling-commodity correlation screen: sorghum is the clear choice for maize
+
+**Decision/finding.** Computed correlation between maize log-returns and
+each co-located sibling commodity's log-returns, at 1, 4 and 13-week
+change horizons (matching the source panel's own Independence-sheet
+methodology), for every market that has both series. Pooled by commodity
+(n-weighted mean across markets):
+
+| Commodity | 1-week | 4-week | 13-week | Markets paired with maize |
+|---|---|---|---|---|
+| Sorghum | 0.538 | 0.703 | **0.859** | 7 of 15 scored (Anchau, Dawanau, Ikara, Kumo, Pambegua, Saminaka, Tundun Saibu) |
+| Millet | 0.189 | 0.431 | 0.682 | 1 (Dawanau only) |
+| Paddy_Rice | 0.356 | 0.477 | 0.642 | 3 (Jengre, Pambegua, Saminaka) |
+| Cowpea | 0.390 | 0.488 | 0.597 | 2 (Kumo, Leggal) |
+| Soybean | 0.239 | 0.388 | 0.454 | 14 (present at nearly every maize market) |
+| Sesame | 0.132 | 0.108 | 0.143 | 2 (Dawanau, Jalingo) |
+
+**Sorghum wins clearly at every horizon**, by a wide margin over the
+second-best (soybean, which is more widely available but much less
+informative). Per-market detail: `outputs/afex_maize_sibling_correlation_detail.csv`.
+Individual pairs go as high as 0.93 (Dandume, dropped from scoring but
+still informative as a data point) and 0.89 (Dawanau). Plausible reading:
+maize and sorghum are grown across an overlapping growing season in this
+region and are partial demand substitutes, so they carry a shared
+regional supply/demand signal that soybean, on a different cycle, does
+not track as closely.
+
+**Consequence.** Sorghum was chosen as the exogenous sibling-commodity
+driver for the next build (D-32), not soybean, despite soybean's wider
+market coverage -- correlation strength was the deciding factor per the
+owner's ask ("which sibling commodity would have the best effect"), not
+coverage. This leaves 8 of 15 scored maize markets without a sibling
+driver at all (Bali, Danja, Garbabi, Gazabu, Giwa, Jalingo, Jengre,
+Leggal); a future build could revisit soybean or a market-specific choice
+for those.
+
+**Cost.** None; read-only analysis over the panel already loaded.
+
+---
+
+## D-32. Sorghum exogenous driver built and run: a clean negative result
+
+**Decision.** `configs/afex_operational_sorghum.yaml`, identical to
+`afex_operational.yaml` except `data.sibling_commodity: Sorghum`.
+`afex_data.py`'s `load_afex_panel` gained a `sibling_commodity` parameter
+that repurposes the existing upstream channel: for the 7 of 15 scored
+maize markets that also have a sorghum series (Anchau, Dawanau, Ikara,
+Kumo, Pambegua, Saminaka, Tundun Saibu), the channel carries that market's
+own sorghum price history over the same 52-week lookback as maize's own
+price -- origin-time only, never the forecast window, so this is
+deployable information, not foreknowledge. No architecture change: the
+model's input channel count is unchanged (10 channels, as before); only
+what channel 2 actually contains differs. Sorghum chosen over every other
+commodity by the correlation screen in D-31.
+
+**Result: worse, not better, exactly where it was applied.** Restricting
+to the 7 paired markets (`outputs/afex_sorghum_vs_operational_paired_split.csv`),
+MAE rises at every horizon for both architectures when sorghum is added:
+
+| | h=4 | h=13 | h=26 |
+|---|---|---|---|
+| RNN, no sibling | 54.01 | 126.11 | 202.93 |
+| RNN, + sorghum | 55.30 | 128.76 | **213.84** |
+| GRU, no sibling | 58.99 | 129.80 | 192.07 |
+| GRU, + sorghum | 61.05 | 134.21 | **201.04** |
+
+In the 8 unpaired markets, where the input is unchanged and only the
+shared model's weights differ, the shift is smaller and mixed (GRU
+improves slightly at h=4 and h=26, worsens at h=13; RNN worsens
+throughout but by less than the paired markets do) -- consistent with
+ordinary training-run variation from a shared pooled model, not a real
+effect of the new information.
+
+**Why a strongly-correlated series still hurts: a documented data-quality
+gap, not a modelling contradiction.** The source panel's own
+Build_Decisions sheet states plainly, under "Not done": maize needed six
+separate defects fixed (emoji labels, glued naira, non-hybrid read as
+hybrid, price before weight, dropped digits, interpolation across a
+programme discontinuity); sorghum and the other five commodities "have
+had only a plausibility band applied," and the same classes of fault
+should be expected in them. Sorghum's 0.86 correlation with maize (D-31)
+describes the SIGNAL two cleaner series would share; the series actually
+fed into this model carries whatever the plausibility band let through
+uncleaned. On a model already shown to be data-constrained on this panel
+(D-27's operational-vs-safeguard-removed reversal), adding a correlated
+but noisier input looks to cost more in injected noise than it returns in
+shared signal.
+
+**Consequence.** Do not adopt sorghum as an exogenous driver on this data
+as it stands. The correlation screen (D-31) picked the right commodity by
+the criterion asked for (co-movement with maize); the result here is a
+statement about this particular sorghum series' data quality, not
+evidence that a cleaner cross-commodity signal would fail the same way.
+If sorghum (or another sibling commodity) is revisited, cleaning it to
+the same standard maize received first is the more promising next step
+than trying a different commodity or a different way of feeding the same
+raw series in.
+
+**Cost.** Two full runs (RNN, GRU), reusing the existing walk-forward
+machinery unchanged.

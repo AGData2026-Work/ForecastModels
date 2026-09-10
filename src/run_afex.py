@@ -2,12 +2,16 @@
 Walk-forward runner for the AFEX multi-commodity farmgate panel.
 
     python src/run_afex.py --config configs/afex_operational.yaml --kind RNN --smoke
-    python src/run_afex.py --config configs/afex_safeguard_removed.yaml --kind GRU --device mps
+    python src/run_afex.py --config configs/afex_operational_sorghum.yaml --kind GRU --device mps
 
-No --convention: this panel has no exogenous drivers, so there is only one
-setting, equivalent to the main pipeline's "unconditional" arm. No incumbent
-either, so metrics are challenger vs a carry-forward "naive" benchmark, not
-vs a panel-FE incumbent.
+No --convention: this panel has no forecast-window driver data, so there is
+no "conditional"/foreknowledge arm. `data.sibling_commodity` in the config
+(optional) repurposes the upstream channel to carry a sibling commodity's
+own price history at the same market -- origin-time information only, never
+the forecast window, so it is deployable, not foreknowledge (see
+afex_data.py's docstring and DECISIONS D-31/D-32). No incumbent either, so
+metrics are challenger vs a carry-forward "naive" benchmark, not vs a
+panel-FE incumbent.
 
 Writes to outputs/<build>/<kind>/:
     forecasts.csv            per-seed, per-origin, per-horizon predictions
@@ -97,7 +101,8 @@ def main() -> None:
     out = Path(a.out or default_out)
     out.mkdir(parents=True, exist_ok=True)
 
-    panel = load_afex_panel(a.panel or cfg["data"]["panel"])
+    panel = load_afex_panel(a.panel or cfg["data"]["panel"],
+                            sibling_commodity=cfg["data"].get("sibling_commodity"))
     grid = generate_afex_grid(panel, H, L)
     train_ids = list(range(len(panel.markets)))
 
