@@ -190,6 +190,7 @@ def main() -> None:
                 emb=cfg["model"]["market_embedding_dim"],
                 dropout=cfg["model"]["head_dropout"],
                 input_dropout=cfg["model"]["input_dropout"],
+                num_layers=cfg["model"].get("num_layers", 1),
             ).to(dev)
             net, info = train_one(
                 net, T(Xtr_s), T(Ftr_s), I(idtr), T(ytr_s), T(w),

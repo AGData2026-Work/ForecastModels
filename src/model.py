@@ -27,15 +27,20 @@ class RecurrentForecaster(nn.Module):
         emb: int = 8,
         dropout: float = 0.0,
         input_dropout: float = 0.0,
+        num_layers: int = 1,
     ) -> None:
         super().__init__()
         if kind not in ("RNN", "GRU"):
             raise ValueError(kind)
         self.kind = kind
         cell = nn.RNN if kind == "RNN" else nn.GRU
-        self.rnn = cell(n_channels, hidden, num_layers=1, batch_first=True,
+        # forward()'s h[-1] already takes the TOP layer's final state
+        # regardless of num_layers, so no change needed there. Inter-layer
+        # dropout is left at PyTorch's default (0) rather than reusing
+        # head_dropout, to keep this a single, isolated capacity lever.
+        self.rnn = cell(n_channels, hidden, num_layers=num_layers, batch_first=True,
                         nonlinearity="tanh") if kind == "RNN" else \
-            cell(n_channels, hidden, num_layers=1, batch_first=True)
+            cell(n_channels, hidden, num_layers=num_layers, batch_first=True)
         self.emb = nn.Embedding(n_markets, emb)
         self.in_drop = nn.Dropout(input_dropout)
         head_in = hidden + emb + n_flat

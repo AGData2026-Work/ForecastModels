@@ -1036,3 +1036,27 @@ the errors move together more than they diverge.
 build3 alone, not a blend, is the right base for the two prioritized
 architectures (D-27 stands unchanged). Cost: near zero, worth trying
 before spending real compute on architecture changes.
+
+---
+
+## D-29. Bracketing build3's capacity choice: hidden=96/192 and a second layer
+
+**Decision.** `RecurrentForecaster` gains `num_layers` (default 1, backward
+compatible with every existing config). Three new configs, each changing
+exactly one thing versus build3.yaml: `build3_hidden96.yaml` (width down),
+`build3_hidden192.yaml` (width up), `build3_2layer.yaml` (depth instead of
+width, hidden held at 128). `forward()`'s `h[-1]` already takes the top
+layer's final state regardless of layer count, so no other code changed.
+
+**Why.** Build2 (hidden=64) to build3 (hidden=128) was one jump, never
+bracketed on either side, and every build in this project has used exactly
+one recurrent layer. This checks two different questions with one small
+code addition: was 128 the right amount of width, and does adding depth
+(a second stacked layer) behave differently from adding width.
+
+**Verified before training.** `num_layers=2` smoke run: 69,763 parameters,
+consistent with roughly doubling the recurrent layer's weight matrix; runs
+end to end with no other code path affected.
+
+**Cost.** Six full runs (RNN + GRU x three configs), queued in background.
+Results in a following entry once complete.

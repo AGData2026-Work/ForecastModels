@@ -1,0 +1,56 @@
+# ---------------------------------------------------------------------------
+# BUILD 3, hidden=96 -- bracketing build3's capacity choice
+#
+# build2 (hidden=64) -> build3 (hidden=128) was one jump with nothing checked
+# in between. This is the same six build3 changes, with hidden halfway
+# between the two, to see whether 128 was actually the right amount of
+# capacity to add or just the first thing tried.
+# ---------------------------------------------------------------------------
+build:
+  name: build3_hidden96
+  note: >
+    Build 3 (safeguards removed) with hidden=96 instead of 128, to check
+    whether build2->build3's capacity jump landed on the right amount or
+    just the first thing tried. Nothing else differs from build3.yaml.
+
+data:
+  panel: data/panel_weekly.parquet
+  baseline_forecasts: data/07_panel_fe_forecasts.parquet
+  train_markets: all_in_panel
+  drop_target_dates: ["2019-04-24"]
+  price_interp_limit_weeks: 13
+
+protocol:
+  horizons: [4, 13, 26]
+  gate_horizons: [4, 13]
+  gate_threshold_pct: 5.0
+
+features:
+  climate_scheme: inverse_distance
+  fourier_k: 2
+  explicit_lag52: true
+
+model:
+  lookback: 52
+  hidden: 96                       # build3 was 128, build2 was 64
+  market_embedding_dim: 8
+  head_dropout: 0.0
+  input_dropout: 0.0
+
+training:
+  seeds: [0, 1, 2, 3, 4, 5, 6]
+  epochs: 200
+  batch_size: 256
+  lr: 0.003
+  patience: 25
+  grad_clip: 1.0
+  weight_decay: 0.0
+  lr_schedule: cosine
+  huber_delta: 1.0
+  val_fraction: 0.15
+  purge_weeks: 26
+  recency_half_life_weeks: null
+  scale_targets: true
+  retrain_every_weeks: 13
+  min_train_windows: 200
+  seed_aggregation: median

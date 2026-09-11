@@ -1,0 +1,58 @@
+# ---------------------------------------------------------------------------
+# BUILD 3, num_layers=2 -- a different kind of capacity than a wider hidden state
+#
+# build3's capacity increase was entirely "wider" (hidden 64->128), one
+# layer throughout this whole project. This tests "deeper" instead: two
+# stacked recurrent layers at build3's original hidden=128, isolating depth
+# from width as a capacity lever.
+# ---------------------------------------------------------------------------
+build:
+  name: build3_2layer
+  note: >
+    Build 3 (safeguards removed) with num_layers=2 instead of 1, hidden
+    held at build3's original 128. Tests depth as a capacity lever,
+    separate from the width increase build3 already tried. Nothing else
+    differs from build3.yaml.
+
+data:
+  panel: data/panel_weekly.parquet
+  baseline_forecasts: data/07_panel_fe_forecasts.parquet
+  train_markets: all_in_panel
+  drop_target_dates: ["2019-04-24"]
+  price_interp_limit_weeks: 13
+
+protocol:
+  horizons: [4, 13, 26]
+  gate_horizons: [4, 13]
+  gate_threshold_pct: 5.0
+
+features:
+  climate_scheme: inverse_distance
+  fourier_k: 2
+  explicit_lag52: true
+
+model:
+  lookback: 52
+  hidden: 128
+  num_layers: 2                    # was 1 (every build in this project so far)
+  market_embedding_dim: 8
+  head_dropout: 0.0
+  input_dropout: 0.0
+
+training:
+  seeds: [0, 1, 2, 3, 4, 5, 6]
+  epochs: 200
+  batch_size: 256
+  lr: 0.003
+  patience: 25
+  grad_clip: 1.0
+  weight_decay: 0.0
+  lr_schedule: cosine
+  huber_delta: 1.0
+  val_fraction: 0.15
+  purge_weeks: 26
+  recency_half_life_weeks: null
+  scale_targets: true
+  retrain_every_weeks: 13
+  min_train_windows: 200
+  seed_aggregation: median
