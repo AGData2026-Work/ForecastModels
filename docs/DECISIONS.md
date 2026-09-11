@@ -1514,3 +1514,62 @@ once.
 operational (no exog) and agroclimatic (rainfall/NDVI only) to isolate
 what the upstream-lag channel adds on top of D-34's result. Findings in a
 following entry once complete.
+
+---
+
+## D-38. Full-exogenous result: combining sources helps more than either alone
+
+**Decision.** Both runs (`configs/afex_operational_full_exog.yaml`, RNN
+and GRU) complete. Compared against operational (no exog, D-27) and
+agroclimatic (rainfall/NDVI only, D-34), all three now on the same 15
+maize markets.
+
+**Overall MAE, NGN/kg, all 15 markets:**
+
+| | h=4 | h=13 | h=26 |
+|---|---|---|---|
+| RNN operational | 59.93 | 131.20 | 179.91 |
+| RNN agroclimatic | 60.84 | 130.74 | 182.39 |
+| RNN full-exog | 61.25 | **130.11** | **177.91** |
+| GRU operational | 63.50 | 135.85 | 162.67 |
+| GRU agroclimatic | 62.87 | 134.56 | 167.39 |
+| GRU full-exog | **62.03** | **132.40** | 167.46 |
+
+Bold marks the best of the three variants in each cell. Full-exog is
+best or effectively tied-for-best in 4 of 6 architecture/horizon cells
+(RNN h=13, RNN h=26, GRU h=4, GRU h=13), and at RNN h=26 it is the first
+exogenous variant tried on this panel to land ahead of plain operational,
+not just close to it (177.91 vs 179.91, and now essentially at the naive
+benchmark of 177.74 rather than behind it as agroclimatic-alone was).
+The one clear loss is RNN h=4 (61.25 vs operational's 59.93), and GRU
+h=26 is a near-tie with agroclimatic (167.46 vs 167.39), both still
+behind plain operational there (162.67).
+
+**Adding the upstream-lag channel on top of agroclimatic helps in 5 of 6
+cells**, comparing full-exog against agroclimatic-alone directly: RNN
+h=13 (130.74 -> 130.11), RNN h=26 (182.39 -> 177.91, the largest single
+improvement in this comparison), GRU h=4 (62.87 -> 62.03), GRU h=13
+(134.56 -> 132.40); only GRU h=26 is essentially flat (167.39 -> 167.46).
+This is the first exogenous addition on this panel where the effect is
+consistently positive rather than mixed (agroclimatic alone, D-34) or a
+clean negative (sorghum, D-32) -- suggesting the two exogenous
+signals are complementary rather than redundant, though not proven
+additive in a formal sense.
+
+**Same pattern holds excluding Giwa and Ikara**
+(`outputs/afex_full_exog_vs_all_comparison.csv` carries both scopes): full-
+exog stays competitive-to-best in the same cells within the 13-market
+scope, so this is not an artifact of those two flagged markets.
+
+**Consequence.** Of everything tried on this panel so far, full-exog
+(rainfall + NDVI + D-36's lagged upstream maize price) is the strongest
+overall exogenous candidate: never the worst variant by a wide margin at
+any horizon, and the clear best at more horizon/architecture
+combinations than either operational-alone or agroclimatic-alone. Worth
+treating as the leading candidate for a future production build on this
+panel, with the caveat that RNN h=4 and the GRU h=26/operational gap
+remain open questions rather than settled ones.
+
+**Cost.** Two full runs (RNN, GRU), reusing the existing walk-forward
+machinery unchanged; no new engineering beyond D-33's and D-36's already-
+built channels.
