@@ -1060,3 +1060,57 @@ end to end with no other code path affected.
 
 **Cost.** Six full runs (RNN + GRU x three configs), queued in background.
 Results in a following entry once complete.
+
+---
+
+## D-30. Capacity bracket complete: width beats depth, GRU still has room at 192
+
+**Decision/finding.** All six new runs complete (D-29). Full comparison,
+MAE and `vs_panel_fe_pct`:
+
+| Run | h=4 MAE | h=13 MAE | h=26 MAE | h=4 vs-fe | h=13 vs-fe | h=26 vs-fe |
+|---|---|---|---|---|---|---|
+| GRU hidden=96 | 16.46 | 31.09 | 50.14 | +1.96 | -6.86 | -40.20 |
+| GRU hidden=128 (baseline) | 16.47 | 30.88 | 48.74 | +1.90 | -6.12 | -36.29 |
+| GRU hidden=192 | **16.55** | **30.22** | **48.14** | +1.41 | **-3.85** | **-34.63** |
+| GRU 2-layer (128) | 16.90 | 31.03 | 49.56 | -0.65 | -6.65 | -38.59 |
+| RNN hidden=96 | 16.89 | 31.54 | 49.04 | -0.62 | -8.41 | -37.13 |
+| RNN hidden=128 (baseline) | 16.91 | 31.71 | 49.07 | -0.73 | -8.98 | -37.21 |
+| RNN hidden=192 | 16.94 | 31.64 | **48.39** | -0.87 | -8.75 | **-35.32** |
+| RNN 2-layer (128) | 16.93 | 31.54 | 48.94 | -0.82 | -8.38 | -36.85 |
+
+**GRU's result is the clean one: MAE improves monotonically with width at
+h=13 and h=26** (31.09 -> 30.88 -> 30.22; 50.14 -> 48.74 -> 48.14 across
+96 -> 128 -> 192), and `vs_panel_fe_pct` improves the same way at both
+horizons (-6.86 -> -6.12 -> -3.85; -40.20 -> -36.29 -> -34.63). No ceiling
+found yet at 192 -- capacity may still be the binding constraint for GRU
+specifically, more than build3's own choice of 128 assumed. h=4 moves the
+other way (96 and 128 both beat 192 there), a real trade-off, not noise
+in one direction only.
+
+**RNN is messier but not contradictory.** h=4 and h=13 barely move across
+96/128/192 (all within about 0.2 NGN/kg of each other -- plausibly seed
+noise, not a real capacity effect at this horizon for this architecture).
+h=26 shows the same direction as GRU: hidden=192 clearly best (48.39 vs
+~49.05 for both 96 and 128), a genuine, if smaller, capacity-helps signal
+at the longest horizon.
+
+**Depth loses to width for both architectures, decisively for GRU.** The
+2-layer variant (same 128 hidden units as build3's baseline, stacked
+instead of widened) is worse than the 1-layer baseline at every horizon
+for GRU, and is the only capacity variant that loses to the incumbent at
+h=4 (-0.65%, versus +1.90% and +1.41% for the two 1-layer widths). For
+RNN, 2-layer roughly ties the 1-layer baseline rather than beating or
+badly trailing it. Stacking a second recurrent layer is not a substitute
+for a wider single layer on this data, at this scale.
+
+**Consequence.** `hidden=192` (1 layer) is now a stronger candidate than
+build3's original `hidden=128` for GRU specifically, and worth adopting
+or extending further (`hidden=256`?) as a follow-up, given no plateau was
+found yet. Not being adopted as a new "final" recommendation in this
+entry without checking seed variance first (D-20's own caution: several
+of the margins here, especially at h=4, are the same order of magnitude
+as this project's typical per-seed MAE spread) -- that check is the
+natural next step before revising D-27's pick.
+
+**Cost.** Six full runs, all complete.
