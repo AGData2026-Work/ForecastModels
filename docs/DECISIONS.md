@@ -1016,3 +1016,23 @@ model being followed here, not deletion.
 **Cost.** None to compute (scoring only); `directional_benchmark.py`
 rerun to bring build3 into the directional comparison for the first time
 (D-19 predates build3's existence).
+
+---
+
+## D-28. Ensembling build2 with build3 does not help; build3 alone stays best
+
+**Decision/finding.** `src/ensemble_build2_build3.py` averaged build2 and
+build3's already-trained predictions (same architecture, same grid) --
+free, no retraining. Result: the ensemble is worse than build3 alone in
+every one of six cells (both architectures, all three horizons). Build2 is
+uniformly worse than build3 on `vs_panel_fe_pct` (D-27), so blending the
+two doesn't cancel independent errors, it just dilutes build3's better fit
+toward build2's worse one. Ensembling only helps when the errors being
+combined are meaningfully uncorrelated; here they share the same data,
+architecture, and lookback, differing only in regularisation strength, so
+the errors move together more than they diverge.
+
+**Consequence.** No further work on this specific ensemble. Confirms
+build3 alone, not a blend, is the right base for the two prioritized
+architectures (D-27 stands unchanged). Cost: near zero, worth trying
+before spending real compute on architecture changes.
