@@ -43,7 +43,20 @@ built around, in three ways that matter:
     commodity in this panel (0.86 at 13-week changes, pooled, vs 0.45 for
     soybean, the next best) and pairs with 7 of the 15 scored maize markets
     (Dandume, dropped from scoring above, would have made 8 of 16 before
-    that drop).
+    that drop). Superseded in later builds by `upstream_lag_map` below;
+    the two are mutually exclusive (both populate the same channel) and
+    passing both raises.
+
+    `upstream_lag_map` (dict: follower market -> (leader market, lag in
+    weeks)) is the alternative, same-commodity use of the upstream
+    channel: a genuinely lagged neighbouring MAIZE market's price, sized
+    empirically per market by the cross-correlation screen in DECISIONS
+    D-36, not assumed. The shift moves the leader's price forward in time
+    so the channel holds what the leader was doing `lag` weeks before the
+    current origin -- real, already-observed information, never the
+    forecast window. Positions before the shift is valid, or built from a
+    leader with no price that week, are left at 0, which `build_sequence`'s
+    existing `up_ok` check (requires > 0) already treats as "no data here."
 
 2.  No incumbent forecast file exists, so there is nothing to read an
     evaluation grid from the way load_grid reads 07_panel_fe_forecasts.parquet
@@ -100,7 +113,8 @@ def load_afex_panel(path: str | Path, drop_zero_window_series: bool = True,
                     sibling_commodity: str | None = None,
                     ndvi_path: str | Path | None = None,
                     rainfall_path: str | Path | None = None,
-                    climate_state_map_path: str | Path | None = None) -> Panel:
+                    climate_state_map_path: str | Path | None = None,
+                    upstream_lag_map: dict[str, tuple[str, int]] | None = None) -> Panel:
     df = pd.read_excel(path, sheet_name="Panel_Long", parse_dates=["date"])
     dates = pd.DatetimeIndex(sorted(df["date"].unique()))
     step = pd.Series(np.diff(dates).astype("timedelta64[D]").astype(int))
@@ -206,6 +220,38 @@ def load_afex_panel(path: str | Path, drop_zero_window_series: bool = True,
             else:
                 sibling_log["maize_markets_unpaired"].append(m)
 
+    upstream_lag_log = {"requested": bool(upstream_lag_map), "assigned": [], "skipped": []}
+    if upstream_lag_map:
+        if sibling_commodity:
+            raise ValueError("sibling_commodity and upstream_lag_map both populate the "
+                             "upstream channel; pass at most one")
+        # Same-commodity, lagged neighbouring-market price, sized empirically
+        # in DECISIONS D-36 (cross-correlation of weekly log-returns at lags
+        # -13..+13 weeks). Populated for MAIZE series only. The shift moves
+        # the leader's price forward in time so that at origin index i the
+        # channel holds the leader's price from `lag` weeks earlier -- real,
+        # already-observed information, never the forecast window. Positions
+        # before the shift is valid, or where the leader itself has no
+        # price, are left at 0, which build_sequence's up_ok check (requires
+        # > 0) already treats as "no data here" and falls back to zero for
+        # that window -- the same convention diesel/rainfall-absent markets
+        # already use elsewhere in this file.
+        for follower, (leader, lag) in upstream_lag_map.items():
+            j_follow = midx.get(f"{follower} | Maize")
+            j_lead = midx.get(f"{leader} | Maize")
+            if j_follow is None or j_lead is None or lag < 0:
+                upstream_lag_log["skipped"].append(follower)
+                continue
+            leader_price = price[:, j_lead]
+            shifted = np.zeros(len(dates))
+            if lag == 0:
+                shifted[:] = np.nan_to_num(leader_price, nan=0.0)
+            else:
+                shifted[lag:] = np.nan_to_num(leader_price[:-lag], nan=0.0)
+            upstream[:, j_follow] = shifted
+            has_upstream[j_follow] = True
+            upstream_lag_log["assigned"].append(dict(follower=follower, leader=leader, lag_weeks=lag))
+
     log = {
         "panel_path": str(path),
         "n_weeks": len(dates),
@@ -218,12 +264,17 @@ def load_afex_panel(path: str | Path, drop_zero_window_series: bool = True,
         "price_cells_total": int(price.size),
         "series_dropped": drop_log,
         "sibling_commodity": sibling_log,
+        "upstream_lag": upstream_lag_log,
         "agroclimatic": climate_log,
         "driver_channels": (
             (f"upstream channel = {sibling_commodity} price at the same market, "
              f"{len(sibling_log['maize_markets_paired'])} of "
              f"{len(sibling_log['maize_markets_paired']) + len(sibling_log['maize_markets_unpaired'])} "
-             "maize markets paired; " if sibling_commodity else "upstream channel unused; ")
+             "maize markets paired; " if sibling_commodity else
+             f"upstream channel = lagged neighbouring-market maize price, "
+             f"{len(upstream_lag_log['assigned'])} markets assigned "
+             f"(D-36 lead-lag screen); "
+             if upstream_lag_map else "upstream channel unused; ")
             + (f"rainfall/NDVI channels = state-level UN Data Exchange series (states covered: "
                f"{climate_log['states_covered']}, missing: {climate_log['states_missing']}, "
                f"real data through {climate_log['last_real_date']}, forward-filled after that); "

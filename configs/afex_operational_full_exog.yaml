@@ -1,0 +1,76 @@
+# ---------------------------------------------------------------------------
+# AFEX multi-commodity farmgate panel, "operational" settings, all three
+# exogenous channels combined: rainfall, NDVI (D-33) and a lagged
+# neighbouring-market maize price (D-36's upstream lead-lag screen).
+#
+# upstream_lag_map assigns each follower market its single best empirically-
+# found leader and lag (strictly positive lag, highest correlation, D-36).
+# Anchau is intentionally omitted: its best candidate correlates at only
+# 0.24-0.25 on a market's weakest data in the whole screen, half the typical
+# strength elsewhere in this table and with no defensible logistics
+# rationale for the flagged 12-week version -- not worth the added noise on
+# a panel already shown to be data-constrained (D-27). Anchau keeps no
+# upstream channel here, same treatment as an unpaired market in the
+# sorghum build (D-32).
+# ---------------------------------------------------------------------------
+build:
+  name: afex_operational_full_exog
+  note: >
+    AFEX farmgate panel, operational hyperparameters, with rainfall, NDVI
+    and a D-36-derived lagged neighbouring-market maize price combined as
+    origin-time exogenous channels. Compared against operational (no
+    exog) and agroclimatic (rainfall/NDVI only) to isolate what the
+    upstream-lag channel adds on top.
+
+data:
+  panel: /Users/augmentumadvisory/Downloads/20260824_AFEX_MultiCommodity_Weekly_Panel_v1.xlsx
+  ndvi_path: /Users/augmentumadvisory/Downloads/UN_DataExchange_NDVI_cleaned.xlsx
+  rainfall_path: /Users/augmentumadvisory/Downloads/UN_DataExchange_Rainfall_cleaned.xlsx
+  climate_state_map_path: /Users/augmentumadvisory/Downloads/20260806_NDVI with States_v0.xlsx
+  upstream_lag_map:
+    Saminaka: [Jengre, 1]
+    Kumo: [Leggal, 1]
+    Pambegua: [Anchau, 1]
+    Bali: [Ikara, 1]
+    Garbabi: [Gazabu, 1]
+    Tundun Saibu: [Anchau, 1]
+    Dawanau: [Tundun Saibu, 1]
+    Jalingo: [Leggal, 1]
+    Danja: [Ikara, 1]
+    Leggal: [Jengre, 1]
+    Jengre: [Giwa, 1]
+    Giwa: [Leggal, 1]
+    Ikara: [Bali, 2]
+    Gazabu: [Ikara, 1]
+
+protocol:
+  horizons: [4, 13, 26]
+
+features:
+  fourier_k: 2
+  explicit_lag52: true
+
+model:
+  lookback: 52
+  hidden: 64
+  market_embedding_dim: 8
+  head_dropout: 0.2
+  input_dropout: 0.1
+
+training:
+  seeds: [0, 1, 2, 3, 4, 5, 6]
+  epochs: 200
+  batch_size: 256
+  lr: 0.003
+  patience: 25
+  grad_clip: 1.0
+  weight_decay: 0.0001
+  lr_schedule: cosine
+  huber_delta: 1.0
+  val_fraction: 0.15
+  purge_weeks: 78
+  recency_half_life_weeks: 156
+  scale_targets: true
+  retrain_every_weeks: 13
+  min_train_windows: 200
+  seed_aggregation: median

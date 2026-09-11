@@ -1476,3 +1476,41 @@ information about each other.
 
 **Visual.** Published as an artifact for review: https://claude.ai/code/artifact/0e984c0a-0737-4578-b1f3-c5454030b8fe
 (private link; not part of the repo).
+
+---
+
+## D-37. Full-exogenous build: rainfall + NDVI + lagged upstream maize price
+
+**Decision.** `configs/afex_operational_full_exog.yaml`: operational
+hyperparameters, all three exogenous channels combined for the first
+time -- rainfall and NDVI (D-33) plus a genuinely lagged neighbouring-
+market maize price (`upstream_lag_map`, sized empirically by D-36's
+cross-correlation screen, not assumed). `afex_data.py`'s `load_afex_panel`
+gained `upstream_lag_map`, mutually exclusive with `sibling_commodity`
+(both populate the same channel; passing both raises). The shift moves
+each leader market's price forward in time so the channel holds what the
+leader was doing `lag` weeks before the current origin -- real,
+already-observed information at every origin, never the forecast window.
+
+**Anchau deliberately excluded from the upstream channel.** Its best
+candidate (D-36) correlates at only 0.24-0.25, roughly half the strength
+of every other market's assignment, and the stronger-looking 12-week
+version has no defensible logistics rationale. Given a noisy exogenous
+input already cost more than it returned once on this panel (sorghum,
+D-32), a weak, arguable pairing was not worth adding here. Anchau keeps
+no upstream channel in this build, the same treatment an unpaired market
+got in the sorghum build.
+
+**Verified before training.** `Ikara`'s upstream channel at index 10
+equals `Bali`'s own price at index 8, confirming the 2-week shift lands
+exactly where intended. All three channels (`rainfall`, `ndvi`,
+`upstream`) checked finite across the whole panel before running
+anything. Smoke run: window counts identical to every earlier AFEX build
+(656/886/1089 training windows at the same three cuts), confirming
+nothing was silently dropped by combining three exogenous sources at
+once.
+
+**Cost.** Two full runs (RNN, GRU), launched next; compared against
+operational (no exog) and agroclimatic (rainfall/NDVI only) to isolate
+what the upstream-lag channel adds on top of D-34's result. Findings in a
+following entry once complete.
