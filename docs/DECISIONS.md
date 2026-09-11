@@ -1717,3 +1717,41 @@ just a monthly-to-weekly forward-fill onto each panel's own date grid.
 Cheapest of the untried data additions to build once done carefully; also
 the first candidate that could apply to the main FEWSNET evaluation, not
 only AFEX, since neither panel currently carries a macro/currency signal.
+
+---
+
+## D-42. Diesel on top of full-exog: helps GRU at every horizon, mixed for RNN
+
+**Decision/finding.** Both runs (`afex_operational_full_exog_diesel.yaml`,
+RNN and GRU) complete.
+
+| | h=4 | h=13 | h=26 |
+|---|---|---|---|
+| RNN full-exog (D-38) | 61.25 | 130.11 | 177.91 |
+| RNN full-exog + diesel | 61.78 | 131.08 | **177.13** |
+| GRU full-exog (D-38) | 62.03 | 132.40 | 167.46 |
+| GRU full-exog + diesel | **61.42** | **132.04** | **166.90** |
+
+GRU improves at every horizon with diesel added, consistently if by a
+small margin (-0.61, -0.36, -0.56 NGN/kg). RNN is mixed: slightly worse at
+h=4 and h=13 (+0.53, +0.97), slightly better at h=26 (-0.78). Both effects
+are small, in the same range as agroclimatic-alone's effect (D-34), not
+the scale of upstream-lag's clear contribution (D-38) or sorghum's clear
+harm (D-32).
+
+**Read with the coverage gaps in mind (D-40).** Diesel here covers only 10
+of 15 scored maize markets and is stale (forward-filled) for the panel's
+most recent ~22 months. A cleaner test -- full geographic coverage, real
+rather than carried-forward recent values -- might show a larger or
+different effect; this result characterises diesel as currently
+integrated, not diesel's ceiling.
+
+**Consequence.** For GRU, worth keeping: it improves the already-best
+build with no new data collection, only a partial-coverage, partly-stale
+version of data the FEWSNET side already had. For RNN, inconclusive at
+this scale of effect -- not worth changing the RNN operational
+recommendation (D-39) over it. Not yet re-run through D-39's exclusion-
+of-outliers or directional lens; both would be quick follow-ups reusing
+existing scripts before treating this as final.
+
+**Cost.** Two full runs, reusing infrastructure built earlier today.
