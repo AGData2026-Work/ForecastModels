@@ -932,3 +932,87 @@ Full table: `outputs/taskA_operational_vs_safeguard_removed_comparison.csv`.
 
 **Not pushed.** Per instruction, none of this session's commits are pushed
 to GitHub until reviewed.
+
+---
+
+## D-27. Prioritizing 2 of the deployable candidates going forward: both Build 3 architectures
+
+**Decision.** Applied the same scoring rigor used for the AFEX workstream
+to this project's own deployable candidates. Result, unlike AFEX, is
+unanimous rather than weight-dependent: **GRU build3 (unconditional)**
+first, **RNN build3 (unconditional)** second, both by a clear margin
+under every weighting scheme tried. Build 2's two architectures rank
+third and fourth, also unanimously.
+
+**Scope of the comparison, and why conditional/conditional_exog/
+forecast_drivers are not in it.** This is a governed evaluation, not an
+open exploration like AFEX, so the arms left out of the scoring are not
+being discarded, only excluded from "which to prioritize for further
+refinement" on grounds already established elsewhere in this log:
+
+- **Conditional (foreknowledge)** is never a deployment candidate by
+  definition -- CLAUDE.md's own hard rule: "Never present a conditional
+  figure as achievable accuracy." It remains governance-required
+  regardless (CLAUDE.md: "Read change_control.json from the conditional
+  runs... only the conditional arm is comparable to the incumbent"), so
+  its outputs stay exactly as they are; it is simply not a candidate for
+  "which model goes forward."
+- **Conditional_exog** shares the same non-deployability problem
+  (forecast-window driver values, just missing the upstream one) and is
+  additionally shown worse than unconditional at every horizon for both
+  architectures, both builds (D-22, D-23) -- doubly excluded.
+- **Forecast_drivers** is deployable in principle but was a clean
+  negative at every horizon, both architectures (D-25), traced to one
+  mandated, weaker-than-carry-forward component (the upstream seasonal-
+  naive method) rather than the general approach. Excluded from this
+  round on the same "mechanistically explained failure" basis AFEX
+  applied to sorghum, not because the underlying idea is dead.
+
+That leaves the unconditional family: build2 (operational) and build3
+(safeguard-removed / capacity-raised) unconditional, both architectures
+-- four candidates, the same shape of comparison AFEX ran.
+
+**Scoring.** Weighted composite: vs-incumbent MAE (`vs_panel_fe_pct`,
+60% -- the metric this whole evaluation exists to answer, more directly
+relevant here than vs-naive since there is a real incumbent to beat),
+directional margin against the panel's own always-up/down base rate
+(25%, D-19/D-29-style, refreshed to include build3 -- not previously
+computed for it), and cross-horizon consistency (15%, std of
+`vs_panel_fe_pct` across h=4/13/26). All three min-max normalised across
+the four candidates.
+
+| Rank | Candidate | vs-incumbent score | Direction score | Consistency score | Composite |
+|---|---|---|---|---|---|
+| 1 | GRU build3 (safeguard-removed) | 100.0 | 100.0 | 60.5 | **94.1** |
+| 2 | RNN build3 (safeguard-removed) | 80.4 | 65.9 | 80.0 | **76.7** |
+| 3 | RNN build2 (operational) | 22.1 | 11.6 | 100.0 | 31.1 |
+| 4 | GRU build2 (operational) | 0.0 | 0.0 | 0.0 | 0.0 |
+
+**Unlike AFEX, this ranking does not flip under any tested weighting**
+(vs-incumbent-only, equal-thirds, consistency-weighted, direction-
+weighted all pick GRU build3 first, RNN build3 second). Build 3 beats
+Build 2 on every axis, both architectures, which is the strongest form
+of evidence this workstream has produced for a "go forward" pick.
+
+**The headline number this does not change: nothing here beats the
+incumbent by the 5% gate threshold, and only one cell beats it at all.**
+`GRU build3` at h=4 is the single positive `vs_panel_fe_pct` across all
+twelve candidate/horizon rows (+1.90%), still short of the 5% change-
+control threshold and still a `change_control` FAIL. Every other
+candidate at every other horizon loses to the incumbent, several by a
+wide margin (h=26 losses of 36-50%). "Prioritize going forward" means
+these two are the strongest base to keep refining, not that either is
+ready to recommend for deployment.
+
+**Consequence.** Recommend GRU build3 and RNN build3 (unconditional) as
+the two architectures to carry forward for further development on the
+main FEWSNET/NADIH evaluation. Build 2's two runs, and the conditional/
+conditional_exog/forecast_drivers arms across both builds, are retained
+in full -- none of this is a pruning exercise the way the AFEX cleanup
+was; the governance record needs all of it, and D-16's own precedent
+(discontinue further runs, retain existing outputs as evidence) is the
+model being followed here, not deletion.
+
+**Cost.** None to compute (scoring only); `directional_benchmark.py`
+rerun to bring build3 into the directional comparison for the first time
+(D-19 predates build3's existence).
