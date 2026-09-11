@@ -1755,3 +1755,13 @@ of-outliers or directional lens; both would be quick follow-ups reusing
 existing scripts before treating this as final.
 
 **Cost.** Two full runs, reusing infrastructure built earlier today.
+
+**Follow-up checks, as flagged above.** Directional: both architectures
+fail the always-up/down base rate at every horizon (RNN 39.8/56.0/42.9%
+vs 59.7/58.7/64.5% share; GRU 40.7/52.0/46.0% vs the same shares) --
+consistent with D-29's pattern, diesel doesn't change the directional
+story. Outlier exclusion: h=13/h=26 improve with Giwa/Ikara excluded
+(e.g. GRU h=26: 166.90 -> 162.11), h=4 worsens (GRU: 61.42 -> 62.38) --
+exactly D-35's established pattern, holding for a fifth build variant now.
+No new surprises; both checks confirm consistency rather than revising
+the read above.
