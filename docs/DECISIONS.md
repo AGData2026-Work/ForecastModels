@@ -1685,3 +1685,35 @@ every other AFEX build (656/886/1089), confirming nothing silently
 dropped.
 
 **Cost.** Two full runs (RNN, GRU), launched next.
+
+---
+
+## D-41. FX rate and inflation: checked, not yet integrated -- scoped for tomorrow
+
+**Finding, not a build.** Two national-level macro series checked for
+integration today: `Official FX rate_2004-2026.xlsx` (monthly, 2004-01 to
+2026-02) and `Complete Inflation data.xlsx` (monthly headline/food, MoM
+and YoY, 2000-01 to 2026-05). Both are clean, single-value-per-month,
+well within range of both panels; both would need only a short forward-fill
+tail (FX: ~5 months to 2026-07-22; inflation: ~2.5 months), far smaller
+than diesel's 22-month gap (D-40).
+
+**Why this isn't built today.** Diesel, rainfall, NDVI and upstream-lag
+all reused channel slots that already existed in `data.Panel` and
+`build_sequence` but sat zero-filled for AFEX -- additive, low-risk changes
+confined to `afex_data.py`. FX and inflation have no existing slot: adding
+them means extending `SEQ_BASE_CHANNELS` and `build_sequence` in
+`src/data.py` itself, which is shared by the main FEWSNET pipeline and
+AFEX both. That is a materially different, higher-risk change (touches
+code the governed evaluation depends on) than anything else done today,
+and it deserves its own careful pass rather than being rushed in while two
+other training queues are mid-run.
+
+**Plan for the next session.** Add `fx_rate` and `inflation_yoy` (or
+similar) as two new optional sequence channels, zero-filled by default so
+every existing config's behaviour is unchanged unless explicitly opted
+in; national values, so no per-market or per-state matching is needed,
+just a monthly-to-weekly forward-fill onto each panel's own date grid.
+Cheapest of the untried data additions to build once done carefully; also
+the first candidate that could apply to the main FEWSNET evaluation, not
+only AFEX, since neither panel currently carries a macro/currency signal.
