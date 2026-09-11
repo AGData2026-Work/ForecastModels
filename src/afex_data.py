@@ -109,12 +109,33 @@ def _dekadal_state_series(source_path: str | Path, sheet: str, value_col: str,
     return out
 
 
+def _weekly_state_diesel_series(source_path: str | Path,
+                                target_dates: pd.DatetimeIndex) -> pd.DataFrame:
+    """State-level diesel from the main FEWSNET/NADIH panel
+    (data/panel_weekly.parquet). Already weekly on the same Wednesday grid
+    as the AFEX panel (verified: both start on a Wednesday), so this only
+    needs a reindex, not the dekadal-to-daily interpolation the rainfall/
+    NDVI sources need. Forward-filled past the source's last real date
+    (2024-09-18) to cover the ~22-month tail gap to the AFEX panel's end --
+    a real coverage gap, logged by the caller, not hidden."""
+    raw = pd.read_parquet(source_path, columns=["date", "state", "diesel"])
+    wide = raw.drop_duplicates(["date", "state"]).pivot(index="date", columns="state", values="diesel")
+    full_idx = pd.date_range(wide.index.min(), max(wide.index.max(), target_dates.max()), freq="7D")
+    wide = wide.reindex(full_idx)
+    last_real_date = wide.dropna(how="all").index.max()
+    wide = wide.ffill()
+    out = wide.reindex(target_dates)
+    out.attrs["last_real_date"] = str(last_real_date.date())
+    return out
+
+
 def load_afex_panel(path: str | Path, drop_zero_window_series: bool = True,
                     sibling_commodity: str | None = None,
                     ndvi_path: str | Path | None = None,
                     rainfall_path: str | Path | None = None,
                     climate_state_map_path: str | Path | None = None,
-                    upstream_lag_map: dict[str, tuple[str, int]] | None = None) -> Panel:
+                    upstream_lag_map: dict[str, tuple[str, int]] | None = None,
+                    diesel_source_path: str | Path | None = None) -> Panel:
     df = pd.read_excel(path, sheet_name="Panel_Long", parse_dates=["date"])
     dates = pd.DatetimeIndex(sorted(df["date"].unique()))
     step = pd.Series(np.diff(dates).astype("timedelta64[D]").astype(int))
@@ -192,6 +213,23 @@ def load_afex_panel(path: str | Path, drop_zero_window_series: bool = True,
             if st in rain_wide.columns:
                 rainfall_arr[:, j] = rain_wide[st].to_numpy(dtype=float)
 
+    diesel_arr = zeros.copy()
+    diesel_log = {"requested": bool(diesel_source_path), "states_covered": [],
+                 "states_missing": [], "last_real_date": None}
+    if diesel_source_path:
+        diesel_wide = _weekly_state_diesel_series(diesel_source_path, dates)
+        diesel_log["last_real_date"] = diesel_wide.attrs.get("last_real_date")
+        needed_states = sorted(set(market_state.get(m.split(" | ")[0]) for m in series))
+        for st in needed_states:
+            if st in diesel_wide.columns:
+                diesel_log["states_covered"].append(st)
+            else:
+                diesel_log["states_missing"].append(st)
+        for j, m in enumerate(series):
+            st = market_state.get(m.split(" | ")[0])
+            if st in diesel_wide.columns:
+                diesel_arr[:, j] = np.nan_to_num(diesel_wide[st].to_numpy(dtype=float), nan=0.0)
+
     has_upstream = np.zeros(len(series), dtype=bool)
     upstream = zeros.copy()
     sibling_log = {"requested": sibling_commodity, "maize_markets_paired": [],
@@ -266,6 +304,7 @@ def load_afex_panel(path: str | Path, drop_zero_window_series: bool = True,
         "sibling_commodity": sibling_log,
         "upstream_lag": upstream_lag_log,
         "agroclimatic": climate_log,
+        "diesel": diesel_log,
         "driver_channels": (
             (f"upstream channel = {sibling_commodity} price at the same market, "
              f"{len(sibling_log['maize_markets_paired'])} of "
@@ -279,11 +318,14 @@ def load_afex_panel(path: str | Path, drop_zero_window_series: bool = True,
                f"{climate_log['states_covered']}, missing: {climate_log['states_missing']}, "
                f"real data through {climate_log['last_real_date']}, forward-filled after that); "
                if climate_log["requested"] else "rainfall/NDVI channels zero-filled; ")
-            + "diesel still zero-filled (no source data attached for this panel)"
+            + (f"diesel channel = state-level FEWSNET panel series (states covered: "
+               f"{diesel_log['states_covered']}, missing: {diesel_log['states_missing']}, "
+               f"real data through {diesel_log['last_real_date']}, forward-filled after that)"
+               if diesel_log["requested"] else "diesel still zero-filled (not requested)")
         ),
     }
     return Panel(dates, series, pos, midx, price, price_filled,
-                 zeros.copy(), upstream, rainfall_arr, ndvi_arr,
+                 diesel_arr, upstream, rainfall_arr, ndvi_arr,
                  fourier, has_upstream, log)
 
 

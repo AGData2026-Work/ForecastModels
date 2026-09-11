@@ -1,0 +1,82 @@
+# ---------------------------------------------------------------------------
+# AFEX multi-commodity farmgate panel, "operational" settings, full-exog
+# (D-37/D-38: rainfall + NDVI + upstream lag) plus diesel added on top.
+#
+# Diesel comes from the main FEWSNET panel's own state-level series (already
+# built once, D-nothing-new needed on that side). Two real gaps, both
+# logged rather than hidden:
+#   1. Geographic: covers Gombe, Kaduna, Kano, Katsina (10 of 15 scored
+#      maize markets); Jengre (Plateau) and Bali/Garbabi/Gazabu/Jalingo
+#      (Taraba) get no diesel channel at all.
+#   2. Temporal: the source only runs to 2024-09-18, forward-filled after
+#      that to cover the ~22-month tail to this panel's 2026-07-22 end --
+#      meaning diesel is a stale, carried-forward value for most of the
+#      panel's most recent (and most decision-relevant) history.
+# One change at a time was the rule for rainfall/NDVI and upstream lag
+# (D-33, D-36); this instead adds diesel directly on top of the
+# already-combined full-exog build, since the goal today is "does a
+# fourth real signal help the current best model further", not a fresh
+# isolation -- if this result is mixed, diesel-alone-on-operational is the
+# natural next isolation to run.
+# ---------------------------------------------------------------------------
+build:
+  name: afex_operational_full_exog_diesel
+  note: >
+    Full-exog (rainfall, NDVI, upstream lag) plus state-level diesel from
+    the main FEWSNET panel, forward-filled past 2024-09-18. Covers 10 of
+    15 scored maize markets (Gombe/Kaduna/Kano/Katsina); Plateau and
+    Taraba markets get no diesel channel.
+
+data:
+  panel: /Users/augmentumadvisory/Downloads/20260824_AFEX_MultiCommodity_Weekly_Panel_v1.xlsx
+  ndvi_path: /Users/augmentumadvisory/Downloads/UN_DataExchange_NDVI_cleaned.xlsx
+  rainfall_path: /Users/augmentumadvisory/Downloads/UN_DataExchange_Rainfall_cleaned.xlsx
+  climate_state_map_path: /Users/augmentumadvisory/Downloads/20260806_NDVI with States_v0.xlsx
+  diesel_source_path: data/panel_weekly.parquet
+  upstream_lag_map:
+    Saminaka: [Jengre, 1]
+    Kumo: [Leggal, 1]
+    Pambegua: [Anchau, 1]
+    Bali: [Ikara, 1]
+    Garbabi: [Gazabu, 1]
+    Tundun Saibu: [Anchau, 1]
+    Dawanau: [Tundun Saibu, 1]
+    Jalingo: [Leggal, 1]
+    Danja: [Ikara, 1]
+    Leggal: [Jengre, 1]
+    Jengre: [Giwa, 1]
+    Giwa: [Leggal, 1]
+    Ikara: [Bali, 2]
+    Gazabu: [Ikara, 1]
+
+protocol:
+  horizons: [4, 13, 26]
+
+features:
+  fourier_k: 2
+  explicit_lag52: true
+
+model:
+  lookback: 52
+  hidden: 64
+  market_embedding_dim: 8
+  head_dropout: 0.2
+  input_dropout: 0.1
+
+training:
+  seeds: [0, 1, 2, 3, 4, 5, 6]
+  epochs: 200
+  batch_size: 256
+  lr: 0.003
+  patience: 25
+  grad_clip: 1.0
+  weight_decay: 0.0001
+  lr_schedule: cosine
+  huber_delta: 1.0
+  val_fraction: 0.15
+  purge_weeks: 78
+  recency_half_life_weeks: 156
+  scale_targets: true
+  retrain_every_weeks: 13
+  min_train_windows: 200
+  seed_aggregation: median

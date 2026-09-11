@@ -1652,3 +1652,36 @@ weighing before either is treated as production-ready.
 
 **Cost.** None to compute (scoring only); disk space freed by removing
 four discontinued run directories and their configs.
+
+---
+
+## D-40. Diesel added to full-exog: partial coverage, real staleness, both logged
+
+**Decision.** `afex_data.py` gains `diesel_source_path`, reusing the main
+FEWSNET panel's own state-level diesel series (`data/panel_weekly.parquet`)
+rather than sourcing anything new. Both panels use the same Wednesday
+weekly grid (verified directly), so this only needs a reindex, not the
+dekadal interpolation rainfall/NDVI required. New config
+`afex_operational_full_exog_diesel.yaml` adds diesel on top of the
+already-combined full-exog build (D-37/38) directly, rather than isolating
+diesel alone first -- the question today is whether a fourth real signal
+helps the current best model further; a solo-diesel isolation is the
+natural next step if this result is mixed.
+
+**Two real gaps, neither hidden.** Diesel covers only 4 of 6 AFEX states
+(Gombe, Kaduna, Kano, Katsina -- 10 of 15 scored maize markets); Plateau
+and Taraba markets (Jengre, Bali, Garbabi, Gazabu, Jalingo) get no diesel
+channel at all. And the source only runs to 2024-09-18; the ~22 months
+after that (to the panel's 2026-07-22 end) are forward-filled, meaning
+diesel is a stale, carried-forward value for most of the panel's most
+recent history -- exactly the period the model is most likely to be used
+against in practice.
+
+**Verified before training.** Covered/missing states match the design
+exactly; every value finite; a spot-checked market's diesel channel is
+flat (correctly forward-filled) across the last five weeks and varies
+correctly across the first five. Smoke run: window counts identical to
+every other AFEX build (656/886/1089), confirming nothing silently
+dropped.
+
+**Cost.** Two full runs (RNN, GRU), launched next.

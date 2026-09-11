@@ -109,7 +109,8 @@ def main() -> None:
                             ndvi_path=cfg["data"].get("ndvi_path"),
                             rainfall_path=cfg["data"].get("rainfall_path"),
                             climate_state_map_path=cfg["data"].get("climate_state_map_path"),
-                            upstream_lag_map=upstream_lag_map)
+                            upstream_lag_map=upstream_lag_map,
+                            diesel_source_path=cfg["data"].get("diesel_source_path"))
     grid = generate_afex_grid(panel, H, L)
     train_ids = list(range(len(panel.markets)))
 
