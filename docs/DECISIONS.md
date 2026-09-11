@@ -1573,3 +1573,82 @@ remain open questions rather than settled ones.
 **Cost.** Two full runs (RNN, GRU), reusing the existing walk-forward
 machinery unchanged; no new engineering beyond D-33's and D-36's already-
 built channels.
+
+---
+
+## D-39. Final selection for this AFEX exploration: GRU full-exog (accuracy), RNN operational (direction)
+
+**Decision.** Two builds carried forward as the outcome of this workstream;
+every other build's config and run outputs removed from the repo. Kept:
+
+- **`configs/afex_operational_full_exog.yaml`, kind GRU** -- accuracy
+  pick. Rainfall + NDVI (D-33) + D-36's lagged upstream maize price
+  (D-37). Best MAE-vs-naive performer of every candidate tried, and the
+  only build where combining exogenous sources produced a consistently
+  positive effect rather than a mixed or negative one (D-38).
+- **`configs/afex_operational.yaml`, kind RNN** -- direction pick. No
+  exogenous data at all. Best directional margin against the panel's own
+  always-up/down base rate of any candidate, and by far the tightest
+  cross-horizon consistency (std of vs-naive MAE 3.18 points, versus
+  6.81 for GRU full-exog) -- see the scoring below.
+
+**Removed:** `configs/afex_safeguard_removed.yaml`,
+`configs/afex_operational_sorghum.yaml`,
+`configs/afex_operational_agroclimatic.yaml`, and every run output under
+`outputs/afex_safeguard_removed/`, `outputs/afex_operational_sorghum/`,
+`outputs/afex_operational_agroclimatic/`, plus the GRU run under
+`outputs/afex_operational/` and the RNN run under
+`outputs/afex_operational_full_exog/` (GRU operational and RNN full-exog
+specifically, the two architecture/build combinations not carried
+forward). Nothing here is undocumented: D-27 (safeguard-removed
+discontinued), D-32 (sorghum, clean negative), D-34 (agroclimatic alone,
+mixed), and D-38 (the full six-way comparison) carry the actual numbers
+and reasoning for every removed build. The cross-build comparison CSVs in
+`outputs/` (per-market, directional, MAPE-across-variants, the scoring
+components) are left in place as the evidence trail; only the model
+configs and their raw per-seed/per-cut outputs were removed.
+
+**Scoring rationale, in full.** Six live candidates (RNN/GRU x
+operational/agroclimatic/full-exog; safeguard-removed and sorghum
+already excluded on independent, mechanistic grounds) scored on a
+weighted composite: MAE-vs-naive (60%, per this project's own stated
+convention that MAE is the primary metric), directional margin against
+the actual always-up/down base rate (25%), and cross-horizon consistency
+-- the standard deviation of the MAE score across h=4/13/26 (15%). MAE
+scored per D-35's own scope rule (h=4 on all 15 markets, h=13/h=26
+excluding Giwa and Ikara). All three raw components min-max normalised
+across the six candidates before weighting.
+
+| Rank | Candidate | MAE score | Direction score | Consistency score | Composite |
+|---|---|---|---|---|---|
+| 1 | GRU full-exog | 100.0 | 9.9 | 39.1 | **68.4** |
+| 2 | RNN operational | 26.9 | 100.0 | 100.0 | 56.2 |
+| 3 | GRU agroclimatic | 53.0 | 0.0 | 20.5 | 34.9 |
+| 4 | GRU operational | 18.8 | 87.8 | 0.0 | 33.2 |
+| 5 | RNN agroclimatic | 11.1 | 37.0 | 77.1 | 27.5 |
+| 6 | RNN full-exog | 0.0 | 36.0 | 73.6 | 20.0 |
+
+**The ranking is not weight-independent, and that is disclosed rather
+than hidden.** Under MAE-dominant or MAE-only weighting, GRU full-exog
+wins clearly every time. Under equal-thirds or direction-weighted
+schemes, RNN operational overtakes it, on the strength of its
+consistency and directional showing. The 60/25/15 split above was chosen
+because MAE is this project's own declared primary metric, not because
+it was the split that produced a preferred answer; the sensitivity
+itself is the reason both candidates, not one, are being carried
+forward rather than declaring a single global winner.
+
+**Two caveats carried forward with the winners, not smoothed away.**
+(1) Every one of the six candidates, including both survivors, loses to
+plain carry-forward at h=4 -- "best available" describes a group that
+has not yet cleared the shortest-horizon bar, not a model that is
+unambiguously good there. (2) GRU full-exog depends on three external
+data sources (the AFEX panel, the UN Data Exchange rainfall/NDVI feed,
+and a static upstream-lag map derived from a correlation snapshot that
+could drift and need re-deriving); RNN operational depends on none of
+these. That operational-simplicity difference is a real form of
+robustness this scoring does not capture numerically and is worth
+weighing before either is treated as production-ready.
+
+**Cost.** None to compute (scoring only); disk space freed by removing
+four discontinued run directories and their configs.

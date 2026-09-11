@@ -34,9 +34,15 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+# D-39: only the two final builds are kept on disk (RNN operational for
+# direction, GRU full-exog for accuracy). The six-way comparison this
+# script originally ran against is preserved as data in
+# outputs/afex_directional_overall.csv / afex_directional_by_market.csv
+# and in DECISIONS.md D-29/D-39; this list stays in sync with what is
+# actually still on disk so a rerun does not fail on a removed build.
 RUNS = [
     ("RNN operational", "outputs/afex_operational/RNN"),
-    ("GRU operational", "outputs/afex_operational/GRU"),
+    ("GRU full_exog", "outputs/afex_operational_full_exog/GRU"),
 ]
 
 
