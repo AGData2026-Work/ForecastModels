@@ -1765,3 +1765,20 @@ story. Outlier exclusion: h=13/h=26 improve with Giwa/Ikara excluded
 exactly D-35's established pattern, holding for a fifth build variant now.
 No new surprises; both checks confirm consistency rather than revising
 the read above.
+
+---
+
+## D-43. Width-capacity bracket applied to GRU full-exog too
+
+**Decision.** Same bracket used on the FEWSNET side (D-29/D-30) applied
+here for direct comparability: `hidden=96` and `hidden=192`, otherwise
+identical to `afex_operational_full_exog.yaml` (baseline `hidden=64`).
+GRU only, per instruction. No code changes needed -- `hidden` was already
+a plain config value on this branch.
+
+**Verified before training.** Smoke run (`hidden=96`): 42,451 parameters
+(up from full-exog's smaller count at hidden=64), window counts identical
+to every other AFEX build (656/886/1089), runs end to end.
+
+**Cost.** Two full runs (hidden=96, hidden=192), launched next. Result in
+a following entry.
