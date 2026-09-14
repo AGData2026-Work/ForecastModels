@@ -1114,3 +1114,18 @@ as this project's typical per-seed MAE spread) -- that check is the
 natural next step before revising D-27's pick.
 
 **Cost.** Six full runs, all complete.
+
+---
+
+## D-31. Continuing the width search: hidden=256
+
+**Decision.** `configs/build3_hidden256.yaml`, extending D-29/D-30's
+bracket one step further since no plateau was found at 192. Smoke-verified:
+276,099 parameters (up from 192's ~158K), runs end to end.
+
+**Plan.** Run both architectures; if the h=13/h=26 improvement continues,
+try a further step (384?); if it plateaus or reverses, that is the
+realistic stopping point for width alone on this panel, and stop there
+rather than searching indefinitely.
+
+**Cost.** Two full runs, launched next.

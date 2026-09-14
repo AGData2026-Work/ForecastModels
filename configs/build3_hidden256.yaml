@@ -1,0 +1,56 @@
+# ---------------------------------------------------------------------------
+# BUILD 3, hidden=256 -- continuing the width search past D-30's bracket
+#
+# D-30 found MAE improving monotonically with width at h=13 and h=26 across
+# hidden 96 -> 128 -> 192 for GRU (and at h=26 for RNN), with no plateau
+# found yet at 192. This continues the search one step further.
+# ---------------------------------------------------------------------------
+build:
+  name: build3_hidden256
+  note: >
+    Build 3 (safeguards removed) with hidden=256 instead of 128, continuing
+    the width search from D-30 (96/128/192) to see whether the
+    improvement at h=13/h=26 keeps going or has started to plateau or
+    reverse. Nothing else differs from build3.yaml.
+
+data:
+  panel: data/panel_weekly.parquet
+  baseline_forecasts: data/07_panel_fe_forecasts.parquet
+  train_markets: all_in_panel
+  drop_target_dates: ["2019-04-24"]
+  price_interp_limit_weeks: 13
+
+protocol:
+  horizons: [4, 13, 26]
+  gate_horizons: [4, 13]
+  gate_threshold_pct: 5.0
+
+features:
+  climate_scheme: inverse_distance
+  fourier_k: 2
+  explicit_lag52: true
+
+model:
+  lookback: 52
+  hidden: 256                      # was 192, 128, 96 in D-29/D-30
+  market_embedding_dim: 8
+  head_dropout: 0.0
+  input_dropout: 0.0
+
+training:
+  seeds: [0, 1, 2, 3, 4, 5, 6]
+  epochs: 200
+  batch_size: 256
+  lr: 0.003
+  patience: 25
+  grad_clip: 1.0
+  weight_decay: 0.0
+  lr_schedule: cosine
+  huber_delta: 1.0
+  val_fraction: 0.15
+  purge_weeks: 26
+  recency_half_life_weeks: null
+  scale_targets: true
+  retrain_every_weeks: 13
+  min_train_windows: 200
+  seed_aggregation: median
