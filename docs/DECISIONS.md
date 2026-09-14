@@ -1172,3 +1172,45 @@ error in their output logs, not a completed result, so nothing here was
 close to being silently accepted as a real hidden=256 RNN number.
 
 **Cost.** Two full runs, all complete. Two more (384) launched next.
+
+---
+
+## D-33. hidden=384 reverses for both architectures: 256 is the realistic stopping point
+
+**Decision/finding.** Both hidden=384 runs complete. Full comparison
+against hidden=256 (D-32):
+
+| Run | h=4 MAE | h=13 MAE | h=26 MAE |
+|---|---|---|---|
+| GRU hidden=256 | 16.33 | 30.13 | 47.91 |
+| GRU hidden=384 | 16.79 | 30.53 | 47.93 |
+| RNN hidden=256 | 16.20 | 30.83 | 46.53 |
+| RNN hidden=384 | 16.98 | 32.85 | 52.13 |
+
+Both architectures get worse at 384, at every horizon. RNN's reversal is
+severe and unambiguous (h=26 alone worsens by 5.6 NGN/kg, more than the
+entire 96->256 improvement it had shown up to that point). GRU's is
+milder -- h=4 and h=13 clearly worse, h=26 essentially flat (47.91 ->
+47.93, a 0.02 NGN/kg move that is almost certainly noise) -- but it is
+not a continuation of the 96->128->192->256 trend by any reading.
+
+**Per D-31's own stated stopping rule** ("if it plateaus or reverses,
+that is the realistic stopping point for width alone on this panel, and
+stop there rather than searching indefinitely"): this is that point.
+Hidden=256 is where the width search stops, for both architectures. 384
+is not being extended to a further step; there is no signal here that
+would justify one.
+
+**What this is and is not.** This settles "how far does widening help,"
+not "should build3's production hidden size change from 128 to 256."
+D-20's standing caution still applies and has still not been checked at
+this scale: every comparison in D-29 through this entry is a single fit
+per configuration, and the moves between adjacent widths (especially
+128->192->256) are not yet known to be larger than this project's own
+seed-to-seed spread. Before recommending hidden=256 as a new production
+default, the same seven-seed variance check D-20 ran for build3 at
+hidden=128 needs to be run at hidden=256, for both architectures. That
+is the natural next step if this is worth taking further; it has not
+been done yet, and build3.yaml's hidden=128 default is unchanged.
+
+**Cost.** Two full runs, all complete. No further width runs queued.
