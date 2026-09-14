@@ -1129,3 +1129,46 @@ realistic stopping point for width alone on this panel, and stop there
 rather than searching indefinitely.
 
 **Cost.** Two full runs, launched next.
+
+---
+
+## D-32. hidden=256 still improving, no plateau at any horizon
+
+**Decision/finding.** Both hidden=256 runs (D-31) complete. Full comparison
+against the hidden=192 rows from D-30:
+
+| Run | h=4 MAE | h=13 MAE | h=26 MAE | h=4 vs-fe | h=13 vs-fe | h=26 vs-fe |
+|---|---|---|---|---|---|---|
+| GRU hidden=192 | 16.55 | 30.22 | 48.14 | +1.41 | -3.85 | -34.63 |
+| GRU hidden=256 | 16.33 | 30.13 | 47.91 | +2.77 | -3.55 | -33.97 |
+| RNN hidden=192 | 16.94 | 31.64 | 48.39 | -0.87 | -8.75 | -35.32 |
+| RNN hidden=256 | 16.20 | 30.83 | 46.53 | +3.53 | -5.94 | -30.13 |
+
+Both architectures improve at every horizon, not just h=13/h=26. GRU's
+move is smaller and consistent with the 96->128->192 trend continuing.
+RNN's move is larger than anything seen in the bracket so far: h=4 flips
+from negative vs-fe at 192 (-0.87%) to clearly positive at 256 (+3.53%),
+and h=26 vs-fe closes by 5.2 points (-35.32 -> -30.13), more than it moved
+across the entire 96/128/192 bracket in D-30. No plateau or reversal at
+either architecture or any horizon.
+
+**Consequence.** Per D-31's plan, this does not stop the search. Params:
+276,099 (GRU) / 138,883 (RNN) at 256, both comfortably under the ~5,708
+max training rows seen at the final cut, so overfitting-by-parameter-count
+is not an obvious concern yet on its own, though this has not been
+seed-variance-checked (D-20's standing caution still applies, and applies
+more now that the moves are bigger, not smaller). `configs/build3_hidden384.yaml`
+created, same single-variable-change pattern as every prior step in this
+bracket. Two full runs queued next.
+
+**Note.** The RNN hidden=256 launch failed twice before succeeding, for
+tooling reasons unrelated to the model: the background shell had no
+`python` on `PATH` (plain `python not found`, exit code 1 on the first
+attempt; `source .venv/bin/activate` did not fix it on the second,
+suggesting the activation script's PATH change did not propagate to that
+shell). Fixed by invoking `.venv/bin/python` directly. Caught before any
+run was trusted -- both failed attempts show up as an immediate one-line
+error in their output logs, not a completed result, so nothing here was
+close to being silently accepted as a real hidden=256 RNN number.
+
+**Cost.** Two full runs, all complete. Two more (384) launched next.

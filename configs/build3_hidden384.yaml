@@ -1,0 +1,56 @@
+# ---------------------------------------------------------------------------
+# BUILD 3, hidden=384 -- continuing the width search past D-31/D-32's 256
+#
+# D-32 found MAE still improving at hidden=256 for both architectures at all
+# three horizons, with no plateau yet. This continues the search one step
+# further, as D-31 planned.
+# ---------------------------------------------------------------------------
+build:
+  name: build3_hidden384
+  note: >
+    Build 3 (safeguards removed) with hidden=384 instead of 128, continuing
+    the width search from D-29/D-30/D-31/D-32 (96/128/192/256) to see
+    whether the improvement at all three horizons keeps going or has
+    started to plateau or reverse. Nothing else differs from build3.yaml.
+
+data:
+  panel: data/panel_weekly.parquet
+  baseline_forecasts: data/07_panel_fe_forecasts.parquet
+  train_markets: all_in_panel
+  drop_target_dates: ["2019-04-24"]
+  price_interp_limit_weeks: 13
+
+protocol:
+  horizons: [4, 13, 26]
+  gate_horizons: [4, 13]
+  gate_threshold_pct: 5.0
+
+features:
+  climate_scheme: inverse_distance
+  fourier_k: 2
+  explicit_lag52: true
+
+model:
+  lookback: 52
+  hidden: 384                      # was 256, 192, 128, 96 in D-29/D-30/D-31
+  market_embedding_dim: 8
+  head_dropout: 0.0
+  input_dropout: 0.0
+
+training:
+  seeds: [0, 1, 2, 3, 4, 5, 6]
+  epochs: 200
+  batch_size: 256
+  lr: 0.003
+  patience: 25
+  grad_clip: 1.0
+  weight_decay: 0.0
+  lr_schedule: cosine
+  huber_delta: 1.0
+  val_fraction: 0.15
+  purge_weeks: 26
+  recency_half_life_weeks: null
+  scale_targets: true
+  retrain_every_weeks: 13
+  min_train_windows: 200
+  seed_aggregation: median
