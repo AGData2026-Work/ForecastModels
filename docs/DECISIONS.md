@@ -1826,3 +1826,31 @@ this panel's own data volume, not carried over from what worked on
 FEWSNET.
 
 **Cost.** Two full runs, complete.
+
+---
+
+## D-45. hidden=96 adopted as the GRU full-exog default
+
+**Decision.** `configs/afex_operational_full_exog.yaml`'s `hidden` changed
+from 64 to 96, promoting D-43/D-44's bracket result into the canonical
+build rather than leaving it as a side comparison. `outputs/
+afex_operational_full_exog/GRU/` now holds the hidden=96 run's actual
+output files (copied from `outputs/afex_operational_full_exog_hidden96/
+GRU/`, not re-run -- the result was already verified and re-running it
+would only reproduce the same numbers at real compute cost). The
+superseded hidden=64 output is kept, not deleted, at
+`outputs/afex_operational_full_exog/GRU_hidden64_superseded/`, following
+this project's own precedent (D-16) of retaining superseded evidence
+rather than discarding it.
+
+**Why 96 and not 64 or 192, restated plainly.** hidden=96 beats hidden=64
+at h=4 (61.65 vs 62.03) and h=13 (130.00 vs 132.40); hidden=192 is worse
+than hidden=64 at every horizon. 96 is the best of the three tried, not
+merely "not worse."
+
+**What this does not change.** RNN is no longer a full-exog finalist
+(D-39: RNN operational is the direction pick instead), so this capacity
+change was validated for GRU only and is not claimed to be right for RNN
+if anyone reruns this config with `--kind RNN`.
+
+**Cost.** None; reuses an already-completed, already-verified run.
