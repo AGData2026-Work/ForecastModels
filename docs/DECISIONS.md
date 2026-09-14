@@ -1782,3 +1782,47 @@ to every other AFEX build (656/886/1089), runs end to end.
 
 **Cost.** Two full runs (hidden=96, hidden=192), launched next. Result in
 a following entry.
+
+---
+
+## D-44. AFEX capacity bracket result: the opposite of FEWSNET's, and consistently so
+
+**Decision/finding.** Both runs (`hidden=96`, `hidden=192`) complete,
+compared against `afex_operational_full_exog.yaml`'s baseline `hidden=64`.
+
+| Hidden | h=4 MAE | h=13 MAE | h=26 MAE |
+|---|---|---|---|
+| 64 (baseline) | 62.03 | 132.40 | 167.46 |
+| 96 | **61.65** | **130.00** | 170.80 |
+| 192 | 63.19 | 132.07 | 180.54 |
+
+At h=26, MAE gets monotonically WORSE as width increases (167.46 -> 170.80
+-> 180.54) -- the exact opposite direction from FEWSNET's GRU build3
+bracket (D-30), where wider was monotonically better at the same two
+longer horizons. At h=4 and h=13, `hidden=96` is the best of the three
+(marginal improvement over 64), but `hidden=192` is close to or worse
+than the baseline at every horizon, not just h=26.
+
+**This is not a contradiction, it is the same principle from two different
+sides.** D-23 found removing overfitting safeguards and raising capacity
+helped on the FEWSNET panel (12 years, thousands of training windows per
+cut) because that panel was under-learning. D-27 found the identical
+safeguard-removal setting *hurt* on the AFEX panel (277 weeks, at most a
+few thousand training windows even pooling 51 series) because that panel
+is comparatively data-poor. This capacity bracket is the same story told
+through width alone, holding everything else fixed: more capacity is
+only good relative to how much data is actually available to fill it.
+AFEX at `hidden=192` (158,227 parameters) is being asked to learn from a
+fraction of FEWSNET's data with over four times FEWSNET's best-performing
+parameter count (D-30's `hidden=192` on FEWSNET: not yet at a ceiling).
+
+**Consequence.** `hidden=96` is a small, plausible improvement over the
+current `hidden=64` default for GRU full-exog at the two shorter
+horizons, but the finding that matters more is qualitative: capacity
+should not be tuned the same way across the two evaluations, because the
+two panels sit in different positions on the same underfitting/overfitting
+spectrum. Any future capacity change on AFEX should be checked against
+this panel's own data volume, not carried over from what worked on
+FEWSNET.
+
+**Cost.** Two full runs, complete.
