@@ -2196,3 +2196,28 @@ restated using this entry, not the earlier one.
 
 **Cost.** None to compute; reused `predictions_paired.csv` already
 verified correct in D-50.
+
+---
+
+## D-52. Correction: the current "GRU full-exog" model does not include diesel
+
+**Decision.** Checking `outputs/afex_operational_full_exog/GRU/run_metadata.json`
+before extending it with new channels: `"diesel": {"requested": False, ...}`,
+`"driver_channels": "...diesel still zero-filled (not requested)"`. The
+canonical config, `configs/afex_operational_full_exog.yaml`, has no
+`diesel_source_path` key. D-42's diesel-added result lives only in the
+separate, never-merged `outputs/afex_operational_full_exog_diesel/`
+output. The current production GRU full-exog model is rainfall + NDVI +
+upstream-lag (D-33/D-36), hidden=96 -- not "plus diesel" as D-45's own
+text and this session's verbal description of it (D-46 through D-51)
+both implied.
+
+**Consequence.** None of D-46/D-49/D-50/D-51's findings change -- each
+read the real current model's actual output files regardless of what I
+believed was in them. Only the description of what channels that model
+carries was wrong. Flagging before building the FX/inflation extension
+in D-53 so it is added to the correct, actual baseline rather than a
+misremembered one. Whether D-42's diesel result should also be merged in
+is a separate, open question, not resolved here.
+
+**Cost.** None; caught by reading metadata before use.
