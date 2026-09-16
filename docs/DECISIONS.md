@@ -1269,3 +1269,74 @@ pushed as a result of this entry. This is a documentation-only commit.
 
 **Cost.** None to compute; reused `seed_variance.csv` already on disk
 from the D-31/D-33 runs.
+
+---
+
+## D-35. Two safeguards re-run against build3: per-market seed stability, and intervals
+
+**Decision.** `src/seed_analysis.py` and `src/intervals.py` were last run
+against build2 only (D-20, D-24), before D-27 made build3 the recommended
+candidate. Neither had been rerun since. Both rerun now, scoped to the
+FEWSNET output tree only (`outputs/*afex*` excluded via a filtered
+`--outdir`, since that tree shares this project's gitignored `outputs/`
+directory with the AFEX branch's runs and its files don't carry the same
+`convention` column). `outputs/seed_analysis.csv`, `seed_count_curve.csv`,
+`intervals_summary.csv`, `intervals_by_regime.csv` and
+`intervals_by_market.csv` are now the build3-inclusive versions.
+
+**Finding 1: build3's aggregate margin over naive clears seed noise
+everywhere, unlike build2's.** All six build3 unconditional cells
+(GRU/RNN x h=4/13/26) now have `margin_over_naive_over_seed_sd` between
+1.88 and 11.34 -- comfortably above the 1.0 bar D-20 flagged build2 for
+failing at h=4 (GRU 0.88, RNN 0.63). Build3's aggregate result is not a
+seed-noise artefact at any horizon, for either architecture.
+
+**Finding 2: per-market verdict stability is not uniformly better, and
+RNN h=4 is worse than build2 was.** Markets where the beats-naive verdict
+flips depending on which single seed is used, of 15:
+
+| Run | h=4 | h=13 | h=26 |
+|---|---|---|---|
+| GRU build3 unconditional | 5 | 0 | 2 |
+| RNN build3 unconditional | **12** | 1 | 4 |
+| GRU build2 unconditional (D-20, for reference) | 9 | -- | -- |
+| RNN build2 unconditional (D-20, for reference) | 10 | -- | -- |
+
+GRU improved (9->5 of 15 flipping at h=4). RNN got worse (10->12): at
+h=4, 12 of RNN build3's 15 markets have a beats-naive call that depends
+on which of the seven fitted seeds you happen to look at. h=13 and h=26
+are stable for both architectures (0-4 of 15). Any per-market claim drawn
+from build3's h=4 unconditional results is not defensible as reported,
+same conclusion D-20 reached for build2, now confirmed current for the
+actual recommended build.
+
+**Finding 3: build3's prediction intervals exist now, and 2023-24
+undercoverage is real but smaller than build2's was.** At alpha=0.20 (80%
+nominal), 2023-24 (fully out-of-sample by construction, 0% calibration):
+
+| Run | h | n | coverage | gap vs 80% nominal | mean width |
+|---|---|---|---|---|---|
+| GRU unconditional | 4 | 255 | 72.5% | -7.5pp | 103 NGN/kg |
+| GRU unconditional | 13 | 287 | 78.7% | -1.3pp | 220 NGN/kg |
+| GRU unconditional | 26 | 333 | 74.8% | -5.2pp | 287 NGN/kg |
+| RNN unconditional | 4 | 255 | 69.4% | **-10.6pp** | 105 NGN/kg |
+| RNN unconditional | 13 | 287 | 77.4% | -2.6pp | 224 NGN/kg |
+| RNN unconditional | 26 | 333 | 77.8% | -2.2pp | 310 NGN/kg |
+
+D-24's build2 numbers for the same regime were worse at every comparable
+cell: GRU h=26 60.06% (20-point gap), h=13 67.94% (12-point gap), RNN h=4
+64.71% (15-point gap). Build3's worst gap (RNN h=4, -10.6pp) is smaller
+than build2's best-case gap in that regime. The 2023-24 shock still
+breaks calibration for the unconditional arm -- this is not claimed to be
+fixed -- but it breaks it less than it used to, consistent with build3's
+higher capacity giving it more room to track a regime it cannot see
+coming.
+
+**What this does and does not settle before expert review.** Build3 now
+has both safeguards current rather than stale. It is not a clean pass:
+RNN's h=4 per-market instability is real and worse than build2's, and no
+regime here reaches nominal coverage. Both are being handed to reviewers
+as known, current limitations, not smoothed into the headline numbers.
+
+**Cost.** Two script reruns, no new training. `outputs/` is gitignored;
+only this entry is a tracked-file change.
