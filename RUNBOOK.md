@@ -80,6 +80,10 @@ dependency can't silently change training behaviour underneath an existing confi
 To intentionally bump a pin: change it on a branch, re-run a `--smoke` config, confirm
 the output matches the pre-bump run, then update `requirements.txt` for real.
 
+`pip install -r requirements-dev.txt` adds `pytest`. Run the unit test suite with
+`pytest tests/` from the repo root; it runs against small synthetic fixtures, not the
+real data files, and should take under a second.
+
 ---
 
 ## Step 4. Audit the data before modelling anything

@@ -267,6 +267,14 @@ def build_sequence(
     p: Panel, i: int, j: int, lookback: int
 ) -> tuple[np.ndarray, bool]:
     """(lookback, C) channel block for origin index i, market j. Window ends AT i."""
+    if i - lookback + 1 < 0:
+        # A negative slice start silently wraps around in numpy rather than
+        # raising, and an empty resulting slice passes np.isfinite(...).all()
+        # vacuously (True on an empty array), so this must be checked
+        # explicitly rather than relying on the finite-value guard below to
+        # catch it. Caught by tests/test_data.py, never exercised by any real
+        # grid today (every real origin already has full lookback history).
+        return np.empty((0, 0)), False
     sl = slice(i - lookback + 1, i + 1)
     px = p.price[sl, j]
     p0 = p.price[i, j]

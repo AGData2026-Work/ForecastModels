@@ -1515,3 +1515,32 @@ mirrored from `afex-multicommodity`'s D-58 since `requirements.txt` and
    parameter (default `""`); no existing call site needed to change.
 
 **Cost.** Under ten minutes; a direct mirror of an already-verified fix.
+
+---
+
+## D-40. Test suite mirrored from afex-multicommodity's D-60, plus the same latent bug fixed here too
+
+**Decision.** `tests/` (`conftest.py`, `test_data.py`, `test_model.py`)
+and `requirements-dev.txt` copied from `afex-multicommodity`. The suite
+is written to be portable across both branches: macro-channel-specific
+tests (`TestSequenceChannelNames`, `test_use_macro_*`) detect via
+`inspect.signature`/`try: import` whether this branch's `data.py` has
+that feature and skip cleanly if not; `num_layers`-specific tests in
+`test_model.py` do the same check in the other direction. Result here:
+23 passed, 4 skipped (the macro tests, correctly, since that feature is
+afex-multicommodity-only); the complementary picture to that branch's 25
+passed, 2 skipped.
+
+**The same latent `build_sequence` bug existed here too, since this
+branch's version of the function predates today's AFEX-only changes and
+has the identical `slice(i - lookback + 1, i + 1)` logic.** Fixed with
+the same explicit bounds check, before copying the tests over (so the
+copied `test_insufficient_history_returns_not_ok` would actually pass
+rather than just being skipped or expected to fail). Confirmed with a
+smoke run of `build3.yaml`, GRU: identical numbers (6.86/28.51/48.60 MAE)
+to the smoke run in D-39. Same as the AFEX side, this path is never
+reached by any real FEWSNET grid, so nothing behind any decision in this
+log was ever affected by it.
+
+**Cost.** About 20 minutes: copy, one source fix, one smoke-test
+re-verification, full suite passing.
