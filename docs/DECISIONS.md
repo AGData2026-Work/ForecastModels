@@ -1398,3 +1398,64 @@ owner's separate workstream may still need them), they are not this project's
 result.
 
 **Cost.** None to compute; a documentation and framing change only.
+
+---
+
+## D-37. RNN's real hidden=256 gain, and whether GRU-128 already makes RNN redundant
+
+**Decision/finding.** Two questions asked before deciding whether to give up
+RNN's confirmed hidden=256 gain (D-34) to protect architecture parity: how
+big is that gain, and does GRU-128 already beat RNN-128 on both accuracy
+and direction, which would make the whole question moot.
+
+**How big is RNN's 128->256 gain (D-34 already confirmed it is real at
+h=4 and h=26):**
+
+| h | MAE 128 | MAE 256 | improvement | vs-naive 128 | vs-naive 256 |
+|---|---|---|---|---|---|
+| 4 | 16.91 | 16.20 | 0.72 NGN/kg (4.2%) | +5.9% | +9.9% (+4.0pp) |
+| 13 | 31.71 | 30.83 | 0.88 NGN/kg (2.8%) | +17.2% | +19.5% (+2.3pp) |
+| 26 | 49.07 | 46.53 | 2.53 NGN/kg (5.2%) | +13.7% | +18.1% (+4.5pp) |
+
+Not huge in absolute terms, but real at h=4 and h=26 (D-34's t-test), and a
+meaningful jump in vs-naive terms at those two horizons.
+
+**Does GRU-128 already beat RNN-128 on both accuracy and direction --
+tested properly this time, not by the old composite score (D-27), which
+answers a different question (which to prioritize overall) than "is GRU
+simply better."**
+
+*Accuracy, head-to-head DM test on the actual production forecasts:*
+
+| h | GRU MAE | RNN MAE | dm p | verdict |
+|---|---|---|---|---|
+| 4 | 16.47 | 16.91 | **.014** | **GRU significantly better** |
+| 13 | 30.88 | 31.71 | .159 | tied, not significant |
+| 26 | 48.74 | 49.07 | .832 | tied, not significant |
+
+*Direction, McNemar's test on paired correct/incorrect calls (the right
+test for two models scored on the identical set of forecasts, not DM
+which is for continuous errors):*
+
+| h | GRU correct | RNN correct | McNemar chi2 | verdict |
+|---|---|---|---|---|
+| 4 | 52.1% | 51.8% | 0.11 | tied |
+| 13 | 60.0% | 59.0% | 1.24 | tied |
+| 26 | 54.1% | 53.7% | 0.15 | tied |
+
+**GRU does not "beat both" across the board.** It has one real, confirmed
+edge: 1-month accuracy. Everywhere else -- 3-month accuracy, 6-month
+accuracy, and direction at all three horizons -- the two architectures are
+statistically indistinguishable, not GRU-wins. The premise that GRU-128
+already makes RNN redundant is not supported by this test; RNN is
+carrying real, distinct capability (rough parity on 2 of 3 accuracy
+horizons and all of direction, plus its own confirmed capacity headroom)
+rather than being a strictly dominated architecture.
+
+**Consequence.** This does not resolve D-34's parity question -- it
+answers a different, narrower one (is dropping RNN a free simplification)
+with "no, not on this evidence." The choice between protecting parity and
+giving RNN its own hidden=256 variant is still open and still the owner's
+call.
+
+**Cost.** None to compute; reused predictions_paired.csv already on disk.
