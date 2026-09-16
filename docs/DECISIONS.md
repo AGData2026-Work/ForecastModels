@@ -1214,3 +1214,58 @@ is the natural next step if this is worth taking further; it has not
 been done yet, and build3.yaml's hidden=128 default is unchanged.
 
 **Cost.** Two full runs, all complete. No further width runs queued.
+
+---
+
+## D-34. Seed-variance check on hidden=256: real for RNN, not distinguishable from noise for GRU
+
+**Decision/finding.** D-20's own caution, finally applied at this scale.
+Both hidden=128 (build3 default) and hidden=256 were fit with the same
+seven seeds (0-6), so each seed can be paired across the two configs --
+a stronger test than comparing independent spreads, because it removes
+whatever that seed's random init/order contributed to both runs and
+isolates what changed because of `hidden` alone. Paired MAE difference
+(128 minus 256; positive means 256 is better) per seed, one-sample t-test
+against zero, df=6:
+
+| Run | h | mean diff | sd | t | significant? |
+|---|---|---|---|---|---|
+| GRU | 4 | -0.01 | 0.37 | -0.08 | no |
+| GRU | 13 | +0.21 | 1.44 | +0.38 | no |
+| GRU | 26 | -0.19 | 1.43 | -0.36 | no |
+| RNN | 4 | +0.81 | 0.62 | **+3.44** | **yes (p<.05)** |
+| RNN | 13 | +0.65 | 1.06 | +1.63 | no |
+| RNN | 26 | +2.52 | 2.13 | **+3.14** | **yes (p<.05)** |
+
+**GRU's apparent width improvement (D-29 through D-33) does not survive
+this test at any horizon.** The per-seed differences are small and flip
+sign about as often as not (e.g. h=26: -1.63, -1.69, +2.51 among others),
+consistent with noise, not a real effect of widening from 128 to 256.
+The clean, monotonic-looking curve reported across D-29/D-30/D-32/D-33
+was real at the level of the seed-median aggregate number, but that
+single aggregate number was never itself checked against how much it
+moves for reasons unrelated to hidden size -- this is that check, and it
+does not hold up for GRU.
+
+**RNN's improvement at h=4 and h=26 is real by the same test** -- both
+comfortably clear significance, and the direction is consistent within
+each seed's own pair (6 of 7 seeds favour 256 at h=4, 6 of 7 at h=26).
+h=13 does not reach significance (t=1.63, needs ~1.94).
+
+**This creates a genuine conflict with a design principle stated in
+CLAUDE.md's own project layout**: "`--kind RNN|GRU` selects the recurrent
+cell and nothing else, so an RNN-versus-GRU difference is attributable
+to gating alone." That guarantee depends on both architectures sharing
+one `hidden` value in `build3.yaml`. Adopting hidden=256 for RNN only
+would break it; adopting it for GRU too would mean shipping a change for
+GRU that this same test says is not distinguishable from seed noise.
+Neither option is taken here. `build3.yaml`'s `hidden=128` default is
+left unchanged for both architectures pending a decision on which matters
+more: architecture-parity in the shared comparison, or RNN's own
+strongest available result on its own terms.
+
+**Consequence.** No config change, no promotion to production, nothing
+pushed as a result of this entry. This is a documentation-only commit.
+
+**Cost.** None to compute; reused `seed_variance.csv` already on disk
+from the D-31/D-33 runs.
