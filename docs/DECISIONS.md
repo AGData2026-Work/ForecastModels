@@ -2634,3 +2634,52 @@ tooling gap: a genuine AFEX-appropriate regime split (e.g. matching the
 per the above).
 
 **Cost.** About 20 minutes.
+
+---
+
+## D-63. Remaining engineering workplan items mirrored from main: persistence, invariants, regression tool, quality gate
+
+**Decision.** Everything built on `main` today after this branch's D-62
+(model persistence D-43, data invariants D-44, `check_regression.py`
+D-44, `quality_gate.py` D-45) ported here, adapted for this branch's own
+differences (no `num_layers`, no `convention` concept, `run_afex.py`'s
+own `metrics_by_horizon.csv`/no `paired_metrics.csv` layout) rather than
+copied verbatim where verbatim would not fit.
+
+**`validate_panel`** (`src/data.py`) wired into both `load_panel` and
+`load_afex_panel`. Verified against both real panels directly, not just
+the synthetic fixture: `data/panel_weekly.parquet` and the real AFEX
+Excel panel both load and validate cleanly.
+
+**`save_checkpoint`/`load_checkpoint`** wired into `run_afex.py` behind
+the same `--save-latest-cut-models` flag as `run.py`. Verified: a smoke
+run without the flag reproduces identical numbers to every prior smoke
+run today (39.70/72.85/93.18 MAE); with the flag, exactly one
+`models/cut_<date>/` directory exists afterward, matching `run.py`'s
+own verified behaviour.
+
+**`check_regression.py`/`append_run_history`** wired into `run_afex.py`,
+passing `"n/a"` where `run.py` would pass a convention, matching the same
+compatibility pattern used throughout today (D-46's `seed_analysis.py`
+fix, D-49's DM test) for AFEX's lack of a convention concept.
+
+**`quality_gate.py` needed one more real piece of work to actually
+function here, not just be copied over: `run_afex.py` never computed or
+wrote `diebold_mariano.csv` at all** -- discovered by trying to run the
+gate against a real AFEX output and getting a clean `FileNotFoundError`
+rather than a silent wrong answer. Added the same DM-vs-naive computation
+`run.py` already had, verified with a smoke run (produces a real, sane
+`diebold_mariano.csv`) before touching anything else. **Not run against
+the actual production AFEX outputs today** -- `outputs/afex_operational_
+full_exog/GRU/` predates this change and has no `diebold_mariano.csv` of
+its own, and given D-63 on `main`'s own process-error lesson from
+earlier today, a real (non-smoke) re-run was deliberately not launched
+just to backfill this file. The gate is proven to work via the smoke
+path; using it on the real production run is a cheap follow-up, not
+attempted here to avoid repeating the exact mistake this session already
+made once.
+
+**Full suite: 40 passed, 2 skipped** (the `num_layers` tests, correctly).
+
+**Cost.** About 45 minutes, most of it the `diebold_mariano.csv` gap
+found and closed along the way.

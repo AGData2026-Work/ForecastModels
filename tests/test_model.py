@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 import torch
 
-from model import RecurrentForecaster, predict, train_one
+from model import RecurrentForecaster, load_checkpoint, predict, save_checkpoint, train_one
 
 HAS_NUM_LAYERS = "num_layers" in inspect.signature(RecurrentForecaster.__init__).parameters
 
@@ -64,21 +64,23 @@ class TestParamCount:
         assert two_layer > one_layer
 
 
+@pytest.fixture
+def toy_training_data():
+    rng = np.random.default_rng(0)
+    n_tr, n_va, lookback, n_channels, n_flat, n_horizons = 64, 16, 10, 5, 0, 2
+    Xtr = torch.tensor(rng.normal(size=(n_tr, lookback, n_channels)), dtype=torch.float32)
+    Ftr = torch.zeros(n_tr, n_flat)
+    Itr = torch.randint(0, 3, (n_tr,))
+    ytr = torch.tensor(rng.normal(size=(n_tr, n_horizons)), dtype=torch.float32)
+    Wtr = torch.ones(n_tr)
+    Xva = torch.tensor(rng.normal(size=(n_va, lookback, n_channels)), dtype=torch.float32)
+    Fva = torch.zeros(n_va, n_flat)
+    Iva = torch.randint(0, 3, (n_va,))
+    yva = torch.tensor(rng.normal(size=(n_va, n_horizons)), dtype=torch.float32)
+    return Xtr, Ftr, Itr, ytr, Wtr, Xva, Fva, Iva, yva
+
+
 class TestTrainOne:
-    @pytest.fixture
-    def toy_training_data(self):
-        rng = np.random.default_rng(0)
-        n_tr, n_va, lookback, n_channels, n_flat, n_horizons = 64, 16, 10, 5, 0, 2
-        Xtr = torch.tensor(rng.normal(size=(n_tr, lookback, n_channels)), dtype=torch.float32)
-        Ftr = torch.zeros(n_tr, n_flat)
-        Itr = torch.randint(0, 3, (n_tr,))
-        ytr = torch.tensor(rng.normal(size=(n_tr, n_horizons)), dtype=torch.float32)
-        Wtr = torch.ones(n_tr)
-        Xva = torch.tensor(rng.normal(size=(n_va, lookback, n_channels)), dtype=torch.float32)
-        Fva = torch.zeros(n_va, n_flat)
-        Iva = torch.randint(0, 3, (n_va,))
-        yva = torch.tensor(rng.normal(size=(n_va, n_horizons)), dtype=torch.float32)
-        return Xtr, Ftr, Itr, ytr, Wtr, Xva, Fva, Iva, yva
 
     def test_runs_and_produces_finite_predictions(self, toy_training_data):
         Xtr, Ftr, Itr, ytr, Wtr, Xva, Fva, Iva, yva = toy_training_data
@@ -100,3 +102,42 @@ class TestTrainOne:
         with pytest.raises(RuntimeError, match="non-finite"):
             train_one(net, Xtr, Ftr, Itr, ytr, Wtr, Xva, Fva, Iva, yva,
                      epochs=3, run_label="unit test")
+
+
+class TestCheckpointRoundTrip:
+    def test_save_and_load_reproduces_identical_predictions(self, toy_training_data, tmp_path):
+        """The whole point of persisting a model (D-63 on main, mirrored
+        here): loading it back must reproduce exactly what the original
+        in-memory model would have predicted, not an approximation."""
+        from data import Scaler
+
+        Xtr, Ftr, Itr, ytr, Wtr, Xva, Fva, Iva, yva = toy_training_data
+        torch.manual_seed(0)
+        net = RecurrentForecaster("GRU", n_channels=5, n_markets=3, n_horizons=2, hidden=8)
+        net, _ = train_one(net, Xtr, Ftr, Itr, ytr, Wtr, Xva, Fva, Iva, yva, epochs=3)
+
+        scaler = Scaler()
+        scaler.seq_mu = np.zeros(5)
+        scaler.seq_sd = np.ones(5)
+        scaler.flat_mu = scaler.flat_sd = None
+        scaler.y_mu = np.zeros(2)
+        scaler.y_sd = np.ones(2)
+
+        original_preds = predict(net, Xva, Fva, Iva)
+
+        ckpt_path = tmp_path / "checkpoint.pt"
+        save_checkpoint(net, scaler, ckpt_path,
+                        meta={"kind": "GRU", "hidden": 8, "n_channels": 5,
+                              "n_markets": 3, "n_horizons": 2})
+
+        state_dict, scaler_state, meta = load_checkpoint(ckpt_path)
+        assert meta["hidden"] == 8
+        assert scaler_state["seq_mu"].shape == (5,)
+
+        reloaded_net = RecurrentForecaster(meta["kind"], meta["n_channels"],
+                                          meta["n_markets"], meta["n_horizons"],
+                                          hidden=meta["hidden"])
+        reloaded_net.load_state_dict(state_dict)
+        reloaded_preds = predict(reloaded_net, Xva, Fva, Iva)
+
+        np.testing.assert_array_equal(original_preds, reloaded_preds)

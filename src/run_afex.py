@@ -27,7 +27,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -38,8 +40,10 @@ import yaml
 sys.path.insert(0, str(Path(__file__).parent))
 
 from afex_data import build_afex_scored_windows, generate_afex_grid, load_afex_panel, maize_series_ids
+from check_regression import append_run_history
 from data import Scaler, build_training_windows, flat_feature_names, sequence_channel_names
-from model import RecurrentForecaster, predict, train_one
+from metrics import diebold_mariano
+from model import RecurrentForecaster, predict, save_checkpoint, train_one
 from walkforward import assign_to_cuts, chronological_split, recency_weights, retrain_cuts
 
 
@@ -80,7 +84,15 @@ def main() -> None:
     ap.add_argument("--seeds", type=int, nargs="+", default=None)
     ap.add_argument("--device", default="cpu", choices=["cpu", "mps", "cuda"])
     ap.add_argument("--threads", type=int, default=0)
+    ap.add_argument("--history", default="outputs/run_history.csv",
+                    help="append-only log of MAE per (build, model, h), one row "
+                         "per real (non-smoke) run, read by check_regression.py")
+    ap.add_argument("--save-latest-cut-models", action="store_true",
+                    help="persist each seed's trained model + scaler for the most "
+                         "recent retrain cut only; off by default, zero effect on "
+                         "any existing invocation")
     a = ap.parse_args()
+    run_start = time.monotonic()
 
     cfg = yaml.safe_load(Path(a.config).read_text())
     if a.threads:
@@ -189,6 +201,15 @@ def main() -> None:
             continue
         Xte_s, Fte_s = sc.transform(Xte, Fte)
 
+        if a.save_latest_cut_models:
+            # Only the most recent cut's models are ever kept on disk (D-63
+            # on main, mirrored here).
+            models_dir = out / "models"
+            if models_dir.exists():
+                shutil.rmtree(models_dir)
+            cut_dir = models_dir / f"cut_{pd.Timestamp(cut).date()}"
+            cut_dir.mkdir(parents=True, exist_ok=True)
+
         for seed in seeds:
             torch.manual_seed(seed)
             np.random.seed(seed)
@@ -211,6 +232,15 @@ def main() -> None:
                 lr_schedule=cfg["training"]["lr_schedule"],
                 huber_delta=cfg["training"]["huber_delta"],
             )
+            if a.save_latest_cut_models:
+                save_checkpoint(net, sc, cut_dir / f"seed_{seed}.pt", meta={
+                    "build": cfg["build"]["name"], "kind": a.kind,
+                    "cut": str(pd.Timestamp(cut).date()), "seed": seed,
+                    "hidden": hidden, "n_channels": Xtr.shape[-1],
+                    "n_flat": Ftr.shape[1], "n_markets": len(panel.markets),
+                    "n_horizons": len(H), "markets": panel.markets,
+                    "market_embedding_dim": cfg["model"]["market_embedding_dim"],
+                })
             yhat = sc.y_inverse(predict(net, T(Xte_s), T(Fte_s),
                                         I(mte["market_id"].values)))
             hist = info.pop("history", [])
@@ -250,6 +280,14 @@ def main() -> None:
     g = g.rename(columns={"pred": a.kind})
     g.to_csv(out / "predictions_paired.csv", index=False)
 
+    dm = []
+    for h in H:
+        s = g[g.h == h]
+        d = diebold_mariano(s["actual"], s[a.kind], s["naive"], h)
+        d.update(h=h, vs="naive")
+        dm.append(d)
+    pd.DataFrame(dm).to_csv(out / "diebold_mariano.csv", index=False)
+
     metric_rows = []
     for h, gh in g.groupby("h"):
         ch_mae, na_mae = mae(gh["actual"], gh[a.kind]), mae(gh["actual"], gh["naive"])
@@ -260,6 +298,9 @@ def main() -> None:
             vs_naive_pct=(na_mae - ch_mae) / na_mae * 100 if na_mae else float("nan")))
     metrics_by_horizon = pd.DataFrame(metric_rows)
     metrics_by_horizon.to_csv(out / "metrics_by_horizon.csv", index=False)
+    if not a.smoke:
+        append_run_history(Path(a.history), cfg["build"]["name"], a.kind,
+                           "n/a", metrics_by_horizon)
 
     g["target"] = g["origin"] + pd.to_timedelta(g["h"], unit="W")
     g["period"] = g["target"].dt.to_period("Q").astype(str)
@@ -280,9 +321,10 @@ def main() -> None:
     pd.DataFrame(market_rows).sort_values(["h", "market"]).to_csv(out / "metrics_by_market.csv", index=False)
 
     n_flat = int(Ftr.shape[1])
+    wall_seconds = time.monotonic() - run_start
     (out / "run_metadata.json").write_text(json.dumps(jsonable(dict(
         build=cfg["build"]["name"], build_note=cfg["build"]["note"],
-        kind=a.kind, smoke=a.smoke,
+        kind=a.kind, smoke=a.smoke, wall_seconds=round(wall_seconds, 1),
         horizons=H, lookback=L, hidden=hidden, seeds=seeds, n_params=int(net.n_params()),
         param_breakdown=net.param_breakdown(),
         sequence_channels=sequence_channel_names(use_macro),
@@ -293,6 +335,18 @@ def main() -> None:
         n_retrain_cuts=len(cuts), retrain_every_weeks=cfg["training"]["retrain_every_weeks"],
         config=cfg, panel_log=panel.log,
     )), indent=2))
+
+    if not a.smoke:
+        time_log_path = Path("outputs/training_time_log.csv")
+        time_row = pd.DataFrame([dict(
+            timestamp=pd.Timestamp.now().isoformat(), build=cfg["build"]["name"],
+            kind=a.kind, convention="n/a", n_retrain_cuts=len(cuts),
+            n_seeds=len(seeds), hidden=hidden, n_params=int(net.n_params()),
+            device=a.device, wall_seconds=round(wall_seconds, 1))])
+        if time_log_path.exists():
+            time_row = pd.concat([pd.read_csv(time_log_path), time_row], ignore_index=True)
+        time_log_path.parent.mkdir(parents=True, exist_ok=True)
+        time_row.to_csv(time_log_path, index=False)
 
     (out / "cleaning_log.json").write_text(json.dumps(jsonable(dict(
         panel_log=panel.log,

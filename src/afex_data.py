@@ -79,7 +79,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from data import Panel, build_flat, build_sequence
+from data import Panel, build_flat, build_sequence, validate_panel
 
 FOURIER_PERIOD = 52.18
 FOURIER_K = 2
@@ -373,9 +373,11 @@ def load_afex_panel(path: str | Path, drop_zero_window_series: bool = True,
                if inflation_log["requested"] else "; inflation channel unused")
         ),
     }
-    return Panel(dates, series, pos, midx, price, price_filled,
+    panel = Panel(dates, series, pos, midx, price, price_filled,
                  diesel_arr, upstream, rainfall_arr, ndvi_arr,
                  fourier, has_upstream, log, fx_arr, inflation_arr)
+    validate_panel(panel)
+    return panel
 
 
 def maize_series_ids(panel: Panel) -> list[int]:

@@ -10,6 +10,7 @@ from data import (
     _safe_log_ratio,
     build_flat,
     build_sequence,
+    validate_panel,
 )
 
 # The macro (FX/inflation) channels exist only on the afex-multicommodity
@@ -160,3 +161,27 @@ class TestSequenceChannelNames:
         names = sequence_channel_names(use_macro=True)
         assert names == SEQ_BASE_CHANNELS + MACRO_CHANNELS
         assert len(names) == 12
+
+
+class TestValidatePanel:
+    def test_valid_panel_passes(self, tiny_panel):
+        validate_panel(tiny_panel)  # must not raise
+
+    def test_duplicate_market_name_raises(self, tiny_panel):
+        p = copy.deepcopy(tiny_panel)
+        p.markets = [p.markets[0]] + p.markets[1:]
+        p.markets[1] = p.markets[0]
+        with pytest.raises(ValueError, match="duplicate"):
+            validate_panel(p)
+
+    def test_market_with_no_observed_price_raises(self, tiny_panel):
+        p = copy.deepcopy(tiny_panel)
+        p.price[:, 0] = np.nan
+        with pytest.raises(ValueError, match="no observed price"):
+            validate_panel(p)
+
+    def test_non_positive_observed_price_raises(self, tiny_panel):
+        p = copy.deepcopy(tiny_panel)
+        p.price[5, 0] = 0.0
+        with pytest.raises(ValueError, match="<= 0"):
+            validate_panel(p)
