@@ -2478,3 +2478,36 @@ decisions (`requirements.txt` and `train_one` are byte-identical between
    it in the message; no existing call site needed to change.
 
 **Cost.** Under an hour combined; both verified before commit.
+
+---
+
+## D-59. Third workplan item: AFEX's hardcoded Downloads paths moved into the repo
+
+**Decision.** All 27 references, across 7 config files
+(`afex_operational.yaml`, `afex_operational_full_exog.yaml`,
+`afex_operational_full_exog_diesel.yaml`,
+`afex_operational_full_exog_hidden96.yaml`,
+`afex_operational_full_exog_hidden192.yaml`,
+`afex_operational_full_exog_macro.yaml`,
+`afex_operational_agroclimatic_h96.yaml`), to
+`/Users/augmentumadvisory/Downloads/...` moved to `data/external/` (6
+distinct files: the AFEX panel, NDVI, rainfall, the NDVI state map, FX
+rate, inflation). `diesel_source_path` was already relative
+(`data/panel_weekly.parquet`) and needed no change. The pipeline no
+longer depends on one person's Downloads folder to run at all.
+
+**File inventory documented in `docs/DATA_EXTERNAL_SOURCES.md`, not a
+README inside `data/external/` itself** -- git will not let a file inside
+an already-ignored directory (`data/` is ignored wholesale) be
+un-ignored on its own, confirmed by testing the negation pattern
+directly before abandoning it, so the documentation has to live outside
+`data/` to actually be tracked.
+
+**Verified as a pure refactor, not a data change.** Ran a `--smoke` pass
+on all 7 affected configs after the path change; every one matches the
+exact numbers already on record from earlier runs today (e.g.
+`afex_operational_full_exog_macro` smoke: 40.91/74.94/99.49 MAE,
+-2.08/-5.37/-13.86 vs-naive -- identical to the run before this change).
+No behaviour moved, only where the files are read from.
+
+**Cost.** About 30 minutes; 7 smoke runs to verify, all matching.

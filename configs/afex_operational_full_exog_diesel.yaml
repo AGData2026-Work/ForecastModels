@@ -28,10 +28,10 @@ build:
     Taraba markets get no diesel channel.
 
 data:
-  panel: /Users/augmentumadvisory/Downloads/20260824_AFEX_MultiCommodity_Weekly_Panel_v1.xlsx
-  ndvi_path: /Users/augmentumadvisory/Downloads/UN_DataExchange_NDVI_cleaned.xlsx
-  rainfall_path: /Users/augmentumadvisory/Downloads/UN_DataExchange_Rainfall_cleaned.xlsx
-  climate_state_map_path: /Users/augmentumadvisory/Downloads/20260806_NDVI with States_v0.xlsx
+  panel: data/external/afex_multicommodity_panel.xlsx
+  ndvi_path: data/external/ndvi_cleaned.xlsx
+  rainfall_path: data/external/rainfall_cleaned.xlsx
+  climate_state_map_path: data/external/ndvi_state_map.xlsx
   diesel_source_path: data/panel_weekly.parquet
   upstream_lag_map:
     Saminaka: [Jengre, 1]

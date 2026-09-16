@@ -15,7 +15,7 @@ build:
     maize series are scored.
 
 data:
-  panel: /Users/augmentumadvisory/Downloads/20260824_AFEX_MultiCommodity_Weekly_Panel_v1.xlsx
+  panel: data/external/afex_multicommodity_panel.xlsx
 
 protocol:
   horizons: [4, 13, 26]

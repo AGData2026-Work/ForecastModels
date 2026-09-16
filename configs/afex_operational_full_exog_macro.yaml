@@ -20,12 +20,12 @@ build:
     defaults to false); this is the one config that turns it on.
 
 data:
-  panel: /Users/augmentumadvisory/Downloads/20260824_AFEX_MultiCommodity_Weekly_Panel_v1.xlsx
-  ndvi_path: /Users/augmentumadvisory/Downloads/UN_DataExchange_NDVI_cleaned.xlsx
-  rainfall_path: /Users/augmentumadvisory/Downloads/UN_DataExchange_Rainfall_cleaned.xlsx
-  climate_state_map_path: /Users/augmentumadvisory/Downloads/20260806_NDVI with States_v0.xlsx
-  fx_rate_path: /Users/augmentumadvisory/Downloads/Official FX rate_2004-2026.xlsx
-  inflation_path: /Users/augmentumadvisory/Downloads/Complete Inflation data.xlsx
+  panel: data/external/afex_multicommodity_panel.xlsx
+  ndvi_path: data/external/ndvi_cleaned.xlsx
+  rainfall_path: data/external/rainfall_cleaned.xlsx
+  climate_state_map_path: data/external/ndvi_state_map.xlsx
+  fx_rate_path: data/external/fx_rate.xlsx
+  inflation_path: data/external/inflation.xlsx
   upstream_lag_map:
     Saminaka: [Jengre, 1]
     Kumo: [Leggal, 1]
