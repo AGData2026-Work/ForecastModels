@@ -22,6 +22,7 @@ import argparse
 import json
 import shutil
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -33,6 +34,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from data import (Scaler, SEQ_BASE_CHANNELS, build_grid_windows,
                   build_training_windows, flat_feature_names, load_grid, load_panel)
+from check_regression import append_run_history
 from metrics import (change_control, diebold_mariano, paired_table, score_long)
 from model import RecurrentForecaster, predict, save_checkpoint, train_one
 from walkforward import (assign_to_cuts, chronological_split, recency_weights,
@@ -69,6 +71,9 @@ def main() -> None:
     ap.add_argument("--hidden", type=int, default=None)
     ap.add_argument("--device", default="cpu", choices=["cpu", "mps", "cuda"])
     ap.add_argument("--threads", type=int, default=0)
+    ap.add_argument("--history", default="outputs/run_history.csv",
+                    help="append-only log of MAE per (build, model, convention, h), "
+                         "one row per real (non-smoke) run, read by check_regression.py")
     ap.add_argument("--save-latest-cut-models", action="store_true",
                     help="persist each seed's trained model + scaler for the most "
                          "recent retrain cut only (overwrites any prior cut's save "
@@ -78,6 +83,7 @@ def main() -> None:
     ap.add_argument("--baseline", default=None,
                     help="override data.baseline_forecasts from the config")
     a = ap.parse_args()
+    run_start = time.monotonic()
 
     cfg = yaml.safe_load(Path(a.config).read_text())
     if a.panel:
@@ -274,6 +280,9 @@ def main() -> None:
 
     paired = paired_table(g, a.kind)
     paired.to_csv(out / "paired_metrics.csv", index=False)
+    if not a.smoke:
+        append_run_history(Path(a.history), cfg["build"]["name"], a.kind,
+                           a.convention, paired)
 
     dm = []
     for h in H:
@@ -294,9 +303,11 @@ def main() -> None:
     (out / "change_control.json").write_text(json.dumps(jsonable(cc), indent=2))
 
     n_flat = int(Ftr.shape[1])
+    wall_seconds = time.monotonic() - run_start
     (out / "run_metadata.json").write_text(json.dumps(jsonable(dict(
         build=cfg["build"]["name"], build_note=cfg["build"]["note"],
         kind=a.kind, convention=a.convention, smoke=a.smoke,
+        wall_seconds=round(wall_seconds, 1),
         horizons=H, gate_horizons=cfg["protocol"]["gate_horizons"],
         lookback=L, hidden=hidden, seeds=seeds, n_params=int(net.n_params()),
         param_breakdown=net.param_breakdown(),
@@ -308,6 +319,18 @@ def main() -> None:
         n_retrain_cuts=len(cuts), retrain_every_weeks=cfg["training"]["retrain_every_weeks"],
         config=cfg, panel_log=panel.log, grid_log=glog,
     )), indent=2))
+
+    if not a.smoke:
+        time_log_path = Path("outputs/training_time_log.csv")
+        time_row = pd.DataFrame([dict(
+            timestamp=pd.Timestamp.now().isoformat(), build=cfg["build"]["name"],
+            kind=a.kind, convention=a.convention, n_retrain_cuts=len(cuts),
+            n_seeds=len(seeds), hidden=hidden, n_params=int(net.n_params()),
+            device=a.device, wall_seconds=round(wall_seconds, 1))])
+        if time_log_path.exists():
+            time_row = pd.concat([pd.read_csv(time_log_path), time_row], ignore_index=True)
+        time_log_path.parent.mkdir(parents=True, exist_ok=True)
+        time_row.to_csv(time_log_path, index=False)
 
     (out / "cleaning_log.json").write_text(json.dumps(jsonable(dict(
         price_cells_interpolated=panel.log["price_cells_interpolated"],

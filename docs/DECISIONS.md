@@ -1704,3 +1704,47 @@ routine the run seems.
 **Cost.** One seven-seed production artifact is gone and not
 recoverable; the replacement finding is more informative than what was
 lost.
+
+---
+
+## D-44. Monitoring workplan items 10-12: data invariants, a regression-warning tool, training-cost tracking
+
+**Decision.** Three small, independent additions, each opt-in or
+additive, each verified to leave every existing behaviour unchanged.
+
+1. **`validate_panel(panel)`** (`src/data.py`), called at the end of
+   `load_panel`: no duplicate market names, no market with zero observed
+   prices at any date, no non-positive price where a value is present
+   (a real gap is `NaN`, never `<=0`; a `<=0` value means an upstream
+   data or unit bug). The pre-existing weekly-spacing check stays where
+   it was, on the raw dates before the `Panel` is built. Verified against
+   the real panel (`data/panel_weekly.parquet` loads and validates
+   cleanly) and four new unit tests.
+
+2. **`src/check_regression.py`**: flags a `(build, model, convention, h)`
+   whose MAE moved by more than a threshold (default 10%) since its
+   previous run. This required a real design fix mid-build: the first
+   draft compared the two most recent `paired_metrics.csv` files on disk,
+   but each run *overwrites* its own file at a fixed path, so there is
+   never more than one snapshot per config to compare against -- caught
+   before shipping it, not after. Fixed with an actual history:
+   `append_run_history` (same file) appends one row per horizon to
+   `outputs/run_history.csv` at the end of every real (non-smoke)
+   `run.py` invocation, and `check_regression.py` reads that log. A
+   warning tool, not a gate -- it never fails the run it's called from.
+   Six new unit tests.
+
+3. **Training wall-clock time recorded**: `run_metadata.json` gains
+   `wall_seconds`; every real (non-smoke) run also appends a row
+   (timestamp, build, kind, hidden, params, device, wall_seconds) to
+   `outputs/training_time_log.csv`, so a future slowdown is visible as a
+   trend rather than only felt anecdotally.
+
+**Verified**: a smoke run of `build3.yaml` GRU produces identical MAE
+numbers to every prior smoke run today (6.86/28.51/48.60), correctly
+does *not* write to `run_history.csv` or `training_time_log.csv` (both
+are non-smoke-only by design), and does report `wall_seconds` in its own
+metadata. Full suite: 35 passed, 4 skipped.
+
+**Cost.** About 90 minutes, including the mid-build redesign of
+`check_regression.py`.

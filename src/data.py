@@ -62,6 +62,27 @@ class Panel:
     log: dict
 
 
+def validate_panel(p: "Panel") -> None:
+    """Centralized invariant checks, called by both `load_panel` and
+    `load_afex_panel` at the end of construction. Raises on the first
+    violation found rather than collecting all of them, since any one of
+    these means the Panel should not be used at all, not "used with a
+    warning." The weekly-spacing check is enforced earlier, on the raw
+    dates before the Panel is built, so it is not repeated here."""
+    if len(p.markets) != len(set(p.markets)):
+        raise ValueError("duplicate market name in Panel.markets")
+    empty_markets = [m for j, m in enumerate(p.markets)
+                     if not np.isfinite(p.price[:, j]).any()]
+    if empty_markets:
+        raise ValueError(f"market(s) with no observed price at any date: {empty_markets}")
+    negative_or_zero = np.isfinite(p.price) & (p.price <= 0)
+    if negative_or_zero.any():
+        n = int(negative_or_zero.sum())
+        raise ValueError(f"{n} price cell(s) are <= 0 where a value is present -- "
+                         "a real price panel should never have this, it means an "
+                         "upstream data or unit-conversion bug, not a natural gap")
+
+
 def _interpolate_within_span(col: np.ndarray, limit: int) -> tuple[np.ndarray, np.ndarray]:
     """Linear-interpolate interior gaps up to `limit` long. Never extrapolates."""
     s = pd.Series(col)
@@ -134,8 +155,10 @@ def load_panel(
         ],
         "root_markets": [m for m, ok in zip(markets, has_up) if not ok],
     }
-    return Panel(dates, markets, pos, midx, price, filled, diesel, upstream,
-                 rain, nd, fou, has_up, log)
+    panel = Panel(dates, markets, pos, midx, price, filled, diesel, upstream,
+                  rain, nd, fou, has_up, log)
+    validate_panel(panel)
+    return panel
 
 
 # ---------------------------------------------------------------------------
