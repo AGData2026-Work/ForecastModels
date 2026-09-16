@@ -67,6 +67,11 @@ python -c "import torch; print(torch.__version__, torch.backends.mps.is_availabl
 sysctl -n hw.perflevelcount hw.perflevel0.logicalcpu 2>/dev/null || sysctl -n hw.ncpu
 ```
 
+`requirements.txt` pins exact versions, not `>=` ranges, so a new major release of a
+dependency can't silently change training behaviour underneath an existing config.
+To intentionally bump a pin: change it on a branch, re-run a `--smoke` config, confirm
+the output matches the pre-bump run, then update `requirements.txt` for real.
+
 Note the core count. You will use it in step 6.
 
 ---

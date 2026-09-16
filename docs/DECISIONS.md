@@ -2450,3 +2450,31 @@ complete rather than partial evidence.
 
 **Cost.** None to compute; one script against the AFEX panel's own price
 history, no new training.
+
+---
+
+## D-58. Two engineering hygiene fixes from the deployment-readiness audit
+
+**Decision.** First two items of the ML Test Score gap-bridging workplan,
+applied to both branches since they are engineering fixes, not workstream
+decisions (`requirements.txt` and `train_one` are byte-identical between
+`main` and this branch).
+
+1. **`requirements.txt` pinned to exact versions** (was `>=` ranges):
+   torch==2.8.0, numpy==2.0.2, pandas==2.3.3, pyarrow==21.0.0,
+   pyyaml==6.0.3, openpyxl==3.1.5 -- the versions actually installed and
+   working today. A future major-version bump in any dependency can no
+   longer silently change training behaviour with nothing to detect it.
+   `RUNBOOK.md` documents how to intentionally bump a pin.
+
+2. **`train_one` (`src/model.py`) now fails loudly on a non-finite loss**,
+   training or validation, instead of continuing silently or only being
+   noticed if a human happens to read `epoch_log.csv`. Verified two ways:
+   a normal smoke run still completes cleanly (unaffected), and a
+   deliberately injected NaN input correctly raises
+   `RuntimeError: ...training loss is nan (non-finite) at epoch 1, batch
+   starting at 0...` rather than training on. `run_label` is an optional
+   new parameter (default `""`) purely for identifying which cut/seed hit
+   it in the message; no existing call site needed to change.
+
+**Cost.** Under an hour combined; both verified before commit.
