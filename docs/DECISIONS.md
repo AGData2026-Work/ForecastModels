@@ -2089,3 +2089,69 @@ in whatever goes to reviewers, not resolved into one verdict.
 
 **Cost.** None to compute; reused `predictions_paired.csv` and an
 existing, already-validated function. No new training.
+
+---
+
+## D-50. Correction to D-46: the "GRU full-exog" row was the superseded hidden=64 run, not hidden=96
+
+**Decision.** Found while investigating per-market flip detail for the
+per-market-stability item queued after D-49. `outputs/afex_operational_
+full_exog/` holds two subfolders, `GRU/` (current, hidden=96, per D-45)
+and `GRU_hidden64_superseded/` (the retained-not-deleted old baseline,
+per D-16's precedent). `seed_analysis.py`'s glob (`*/*/forecasts.csv`)
+matches both, and both files carry the internal `build` label they were
+originally run under -- `GRU_hidden64_superseded/forecasts.csv` still
+says `build=afex_operational_full_exog` (its name from before D-45's
+rename), while the current `GRU/forecasts.csv` says
+`build=afex_operational_full_exog_hidden96`. D-46's table row labelled
+**"GRU full-exog h96 (accuracy pick)" was reading the old hidden=64
+file**, not the current model, because I matched on the pre-rename label
+without checking which physical run it actually pointed to. D-49's DM
+test is unaffected -- it read `predictions_paired.csv` by explicit path
+into the correct `GRU/` folder and its MAE was verified against the known
+hidden=96 figures (61.65/130.00/170.80) before use.
+
+**Corrected table, real hidden=96 GRU full-exog (was reported as D-46's
+"GRU full-exog h96" row; the numbers below replace those, not the
+RNN operational row, which was never affected):**
+
+| h | margin/naive/seed-sd | verdict flips (of 14) |
+|---|---|---|
+| 4 | -2.31 (confidently worse than naive, same conclusion as before) | 4 (was misreported as 4 -- unaffected) |
+| 13 | **+1.31 (clears the noise floor -- was misreported as +0.66, below it)** | **9 (was misreported as 13)** |
+| 26 | **+1.14 (clears the noise floor -- was misreported as +1.04)** | **9 (was misreported as 12)** |
+
+**This reverses the headline of D-46 for GRU full-exog.** The real
+current model's margin over naive at h=13 -- the horizon it was picked
+for -- is *not* indistinguishable from seed noise; it clears the same
+1.0 bar RNN operational's h=13 barely clears (1.49), and its per-market
+flip rate is meaningfully better than reported (9 of 14, not 13). Taken
+together with D-49's independent DM significance finding at h=13, GRU
+full-exog's case is stronger on both tests that matter, not weaker on
+one and stronger on the other as D-46+D-49 together previously implied.
+
+**What is unaffected.** RNN operational's own numbers (D-46, D-47): read
+from `outputs/afex_operational/RNN/forecasts.csv`, a path with no
+superseded-subfolder collision, confirmed by an independent row-count
+check (18,795 rows, no duplication). D-48's paired hidden=64-vs-96 test
+used three explicit, distinct, individually-named paths and was never
+exposed to this glob ambiguity -- its no-significant-difference finding
+stands.
+
+**Fix applied.** Re-ran `seed_analysis.py` against a corrected scratch
+tree with one uniquely-named folder per actual run (no folder aliases
+that share an internal build label with another folder), confirmed no
+build now shows a doubled row count, and overwrote the canonical
+`outputs/seed_analysis.csv` / `seed_count_curve.csv` with the corrected
+version. `outputs/` is gitignored; this entry is the only tracked change.
+
+**Why this is being logged rather than quietly fixed.** This project's
+own standing rule (CLAUDE.md: "if a result swings and the model barely
+moved, suspect the measuring stick") applies to my own tooling mistakes
+as much as to the model. The error changed a real conclusion (GRU
+full-exog's h=13 seed-robustness) in the more favourable direction for a
+candidate already being scrutinised today -- exactly the situation where
+it would be easiest to under-report a self-caught mistake. Not doing
+that here.
+
+**Cost.** None to compute beyond re-running an existing script correctly.
