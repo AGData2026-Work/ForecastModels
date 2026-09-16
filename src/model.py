@@ -79,8 +79,13 @@ def train_one(
     weight_decay: float = 0.0,
     lr_schedule: str = "none",
     huber_delta: float = 1.0,
+    run_label: str = "",
 ) -> tuple[RecurrentForecaster, dict]:
-    """Chronologically split, early-stopped fit. Returns the best-validation state."""
+    """Chronologically split, early-stopped fit. Returns the best-validation state.
+
+    `run_label` is only used to make a NaN/Inf error message identify which
+    cut/seed produced it; passing nothing still fails loudly, just without
+    that context."""
     opt = torch.optim.Adam(net.parameters(), lr=lr, weight_decay=weight_decay)
     sched = None
     if lr_schedule == "cosine":
@@ -104,6 +109,11 @@ def train_one(
             pred = net(Xtr[idx], Ftr[idx], Itr[idx])
             per = loss_fn(pred, ytr[idx]).mean(dim=1)
             loss = (per * Wtr[idx]).sum() / Wtr[idx].sum()
+            if not torch.isfinite(loss):
+                raise RuntimeError(
+                    f"{run_label}: training loss is {loss.item()} (non-finite) at "
+                    f"epoch {ep + 1}, batch starting at {k}. Stopping rather than "
+                    f"continuing to train on a diverged model.")
             loss.backward()
             nn.utils.clip_grad_norm_(net.parameters(), clip)
             opt.step()
@@ -116,6 +126,11 @@ def train_one(
                 t = loss_fn(net(Xtr[sub], Ftr[sub], Itr[sub]), ytr[sub]).mean().item()
             else:
                 t = loss_fn(net(Xtr, Ftr, Itr), ytr).mean().item()
+        if not (np.isfinite(v) and np.isfinite(t)):
+            raise RuntimeError(
+                f"{run_label}: validation loss {v} or train-checkpoint loss {t} is "
+                f"non-finite after epoch {ep + 1}. Stopping rather than early-stopping "
+                f"on a diverged model.")
         history.append({"epoch": ep + 1, "train_loss": t, "val_loss": v,
                         "train_loss_subsampled": train_loss_subsampled})
         ran = ep + 1

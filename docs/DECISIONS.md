@@ -1492,3 +1492,26 @@ available to revisit if a future change to the data or protocol changes
 the calculus.
 
 **Cost.** None; a documentation-only decision.
+
+---
+
+## D-39. Two engineering hygiene fixes from the deployment-readiness audit
+
+**Decision.** First two items of the ML Test Score gap-bridging workplan,
+mirrored from `afex-multicommodity`'s D-58 since `requirements.txt` and
+`train_one` were byte-identical between branches before this change.
+
+1. **`requirements.txt` pinned to exact versions** (was `>=` ranges):
+   torch==2.8.0, numpy==2.0.2, pandas==2.3.3, pyarrow==21.0.0,
+   pyyaml==6.0.3, openpyxl==3.1.5. `RUNBOOK.md` documents how to
+   intentionally bump a pin (smoke-verify before and after).
+
+2. **`train_one` (`src/model.py`) now fails loudly on a non-finite loss**
+   instead of continuing silently. Verified: a normal smoke run
+   (`build3.yaml`, GRU) completes unaffected; the detection logic itself
+   was verified directly on the AFEX branch (injected NaN input correctly
+   raised `RuntimeError`) before being mirrored here, since `train_one`
+   is identical code in both places. `run_label` is a new optional
+   parameter (default `""`); no existing call site needed to change.
+
+**Cost.** Under ten minutes; a direct mirror of an already-verified fix.

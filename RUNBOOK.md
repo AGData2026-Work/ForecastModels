@@ -75,6 +75,11 @@ sysctl -n hw.perflevelcount hw.perflevel0.logicalcpu 2>/dev/null || sysctl -n hw
 
 Note the core count. You will use it in step 6.
 
+`requirements.txt` pins exact versions, not `>=` ranges, so a new major release of a
+dependency can't silently change training behaviour underneath an existing config.
+To intentionally bump a pin: change it on a branch, re-run a `--smoke` config, confirm
+the output matches the pre-bump run, then update `requirements.txt` for real.
+
 ---
 
 ## Step 4. Audit the data before modelling anything
