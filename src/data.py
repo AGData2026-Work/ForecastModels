@@ -41,6 +41,19 @@ SEQ_BASE_CHANNELS = [
     "upstream_mask",
 ]
 
+# Appended after SEQ_BASE_CHANNELS only when build_sequence(..., use_macro=True).
+# Kept as a separate list, not merged into SEQ_BASE_CHANNELS, so every existing
+# config's channel count and n_channels is unaffected unless explicitly opted in
+# (D-41's plan). National-level FX/inflation, not yet used by any FEWSNET config.
+MACRO_CHANNELS = [
+    "rel_log_fx_rate",
+    "inflation_yoy",
+]
+
+
+def sequence_channel_names(use_macro: bool = False) -> list[str]:
+    return SEQ_BASE_CHANNELS + (MACRO_CHANNELS if use_macro else [])
+
 
 # ---------------------------------------------------------------------------
 # panel
@@ -60,6 +73,8 @@ class Panel:
     fourier: np.ndarray        # (T, 4)
     has_upstream: np.ndarray   # (M,) bool
     log: dict
+    fx_rate: np.ndarray | None = None        # (T, M), national series broadcast to every column
+    inflation_yoy: np.ndarray | None = None  # (T, M), national series broadcast to every column
 
 
 def _interpolate_within_span(col: np.ndarray, limit: int) -> tuple[np.ndarray, np.ndarray]:
@@ -264,9 +279,13 @@ def upstream_forecast_seasonal_naive(series: np.ndarray, target_idx: int) -> flo
 
 
 def build_sequence(
-    p: Panel, i: int, j: int, lookback: int
+    p: Panel, i: int, j: int, lookback: int, use_macro: bool = False
 ) -> tuple[np.ndarray, bool]:
-    """(lookback, C) channel block for origin index i, market j. Window ends AT i."""
+    """(lookback, C) channel block for origin index i, market j. Window ends AT i.
+
+    use_macro=False (the default, and the only mode any existing config uses)
+    reproduces this function's channel set exactly as before this parameter
+    existed -- no behaviour change for FEWSNET or any prior AFEX run."""
     sl = slice(i - lookback + 1, i + 1)
     px = p.price[sl, j]
     p0 = p.price[i, j]
@@ -287,6 +306,14 @@ def build_sequence(
     for k in range(p.fourier.shape[1]):
         chan.append(p.fourier[sl, k])
     chan.append(np.full(lookback, 1.0 if up_ok else 0.0))
+
+    if use_macro:
+        if p.fx_rate is None or p.inflation_yoy is None:
+            raise ValueError("use_macro=True but Panel has no fx_rate/inflation_yoy "
+                             "(pass fx_rate_path/inflation_path to the panel loader)")
+        fx = p.fx_rate[sl, j]
+        chan.append(_safe_log_ratio(fx, np.full(lookback, p.fx_rate[i, j])))
+        chan.append(p.inflation_yoy[sl, j])
 
     X = np.column_stack(chan)
     if not np.isfinite(X).all():
@@ -405,6 +432,7 @@ def build_training_windows(
     origin_min_idx: int | None = None,
     realised_upstream: bool = True,
     driver_source: str = "realised",
+    use_macro: bool = False,
 ):
     """Every usable (market, week) window whose LAST TARGET lands at or before
     origin_max_idx. Nothing at or after the forecast cut can enter."""
@@ -421,7 +449,7 @@ def build_training_windows(
             tgt = p.price[[i + h for h in horizons], j]
             if not np.isfinite(tgt).all() or (tgt <= 0).any():
                 continue
-            X, ok = build_sequence(p, i, j, lookback)
+            X, ok = build_sequence(p, i, j, lookback, use_macro=use_macro)
             if not ok:
                 continue
             F, ok = build_flat(p, i, j, horizons, use_lag52, use_realised_drivers,

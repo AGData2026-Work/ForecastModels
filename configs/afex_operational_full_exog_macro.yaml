@@ -1,0 +1,76 @@
+# ---------------------------------------------------------------------------
+# AFEX full-exog (rainfall, NDVI, upstream-lag) plus two new national
+# macro channels: FX rate and headline inflation YoY (D-41's scoped plan,
+# built out in D-53). Otherwise identical to afex_operational_full_exog.yaml.
+#
+# Headline inflation, not food inflation: food inflation is computed
+# substantially from the same grain/food prices this project forecasts,
+# which risks the same circularity concern already flagged for the
+# upstream-price driver (D-38's caveat). Headline inflation is a broader
+# macro signal not directly derived from the commodities in this panel.
+# ---------------------------------------------------------------------------
+build:
+  name: afex_operational_full_exog_macro
+  note: >
+    afex_operational_full_exog.yaml (rainfall, NDVI, upstream-lag,
+    hidden=96) with two new sequence channels added: national FX rate
+    (log-ratio relative to origin, like diesel/upstream) and national
+    headline inflation YoY (used as a level, like rainfall/NDVI). Both
+    zero-filled and opt-in everywhere else in the codebase (use_macro
+    defaults to false); this is the one config that turns it on.
+
+data:
+  panel: /Users/augmentumadvisory/Downloads/20260824_AFEX_MultiCommodity_Weekly_Panel_v1.xlsx
+  ndvi_path: /Users/augmentumadvisory/Downloads/UN_DataExchange_NDVI_cleaned.xlsx
+  rainfall_path: /Users/augmentumadvisory/Downloads/UN_DataExchange_Rainfall_cleaned.xlsx
+  climate_state_map_path: /Users/augmentumadvisory/Downloads/20260806_NDVI with States_v0.xlsx
+  fx_rate_path: /Users/augmentumadvisory/Downloads/Official FX rate_2004-2026.xlsx
+  inflation_path: /Users/augmentumadvisory/Downloads/Complete Inflation data.xlsx
+  upstream_lag_map:
+    Saminaka: [Jengre, 1]
+    Kumo: [Leggal, 1]
+    Pambegua: [Anchau, 1]
+    Bali: [Ikara, 1]
+    Garbabi: [Gazabu, 1]
+    Tundun Saibu: [Anchau, 1]
+    Dawanau: [Tundun Saibu, 1]
+    Jalingo: [Leggal, 1]
+    Danja: [Ikara, 1]
+    Leggal: [Jengre, 1]
+    Jengre: [Giwa, 1]
+    Giwa: [Leggal, 1]
+    Ikara: [Bali, 2]
+    Gazabu: [Ikara, 1]
+
+protocol:
+  horizons: [4, 13, 26]
+
+features:
+  fourier_k: 2
+  explicit_lag52: true
+  use_macro: true
+
+model:
+  lookback: 52
+  hidden: 96
+  market_embedding_dim: 8
+  head_dropout: 0.2
+  input_dropout: 0.1
+
+training:
+  seeds: [0, 1, 2, 3, 4, 5, 6]
+  epochs: 200
+  batch_size: 256
+  lr: 0.003
+  patience: 25
+  grad_clip: 1.0
+  weight_decay: 0.0001
+  lr_schedule: cosine
+  huber_delta: 1.0
+  val_fraction: 0.15
+  purge_weeks: 78
+  recency_half_life_weeks: 156
+  scale_targets: true
+  retrain_every_weeks: 13
+  min_train_windows: 200
+  seed_aggregation: median

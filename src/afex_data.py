@@ -129,13 +129,34 @@ def _weekly_state_diesel_series(source_path: str | Path,
     return out
 
 
+def _national_monthly_series(source_path: str | Path, sheet: str, date_col: str,
+                             value_col: str, target_dates: pd.DatetimeIndex) -> pd.Series:
+    """One national-level monthly series (FX rate, inflation), forward-filled
+    onto the panel's weekly grid. No per-state/per-market disaggregation --
+    the same national value applies to every series in the panel, unlike
+    diesel/rainfall/NDVI which vary by state. Monthly-to-weekly is a plain
+    forward-fill: the value is assumed to hold from its reported month until
+    the next reading, never interpolated ahead of a real observation."""
+    raw = pd.read_excel(source_path, sheet_name=sheet)
+    raw = raw.rename(columns={date_col: "date"})
+    raw["date"] = pd.to_datetime(raw["date"])
+    s = raw.drop_duplicates("date").set_index("date")[value_col].sort_index()
+    last_real_date = s.index.max()
+    combined = s.index.union(target_dates).sort_values()
+    out = s.reindex(combined).ffill().reindex(target_dates)
+    out.attrs["last_real_date"] = str(pd.Timestamp(last_real_date).date())
+    return out
+
+
 def load_afex_panel(path: str | Path, drop_zero_window_series: bool = True,
                     sibling_commodity: str | None = None,
                     ndvi_path: str | Path | None = None,
                     rainfall_path: str | Path | None = None,
                     climate_state_map_path: str | Path | None = None,
                     upstream_lag_map: dict[str, tuple[str, int]] | None = None,
-                    diesel_source_path: str | Path | None = None) -> Panel:
+                    diesel_source_path: str | Path | None = None,
+                    fx_rate_path: str | Path | None = None,
+                    inflation_path: str | Path | None = None) -> Panel:
     df = pd.read_excel(path, sheet_name="Panel_Long", parse_dates=["date"])
     dates = pd.DatetimeIndex(sorted(df["date"].unique()))
     step = pd.Series(np.diff(dates).astype("timedelta64[D]").astype(int))
@@ -230,6 +251,26 @@ def load_afex_panel(path: str | Path, drop_zero_window_series: bool = True,
             if st in diesel_wide.columns:
                 diesel_arr[:, j] = np.nan_to_num(diesel_wide[st].to_numpy(dtype=float), nan=0.0)
 
+    # National series -- same value broadcast to every column, unlike
+    # diesel/rainfall/NDVI which vary by state. None (not zero-filled) when
+    # not requested, so build_sequence(use_macro=True) fails loudly rather
+    # than silently training on zeros if these paths are missing.
+    fx_arr = None
+    fx_log = {"requested": bool(fx_rate_path), "last_real_date": None}
+    if fx_rate_path:
+        fx_series = _national_monthly_series(fx_rate_path, "Sheet1", "Months",
+                                             "Official Exchange Rate", dates)
+        fx_log["last_real_date"] = fx_series.attrs.get("last_real_date")
+        fx_arr = np.tile(fx_series.to_numpy(dtype=float)[:, None], (1, len(series)))
+
+    inflation_arr = None
+    inflation_log = {"requested": bool(inflation_path), "last_real_date": None}
+    if inflation_path:
+        infl_series = _national_monthly_series(inflation_path, "Monthly Inflation", "Unnamed: 0",
+                                               "Headline Inflation (%)-YoY", dates)
+        inflation_log["last_real_date"] = infl_series.attrs.get("last_real_date")
+        inflation_arr = np.tile(infl_series.to_numpy(dtype=float)[:, None], (1, len(series)))
+
     has_upstream = np.zeros(len(series), dtype=bool)
     upstream = zeros.copy()
     sibling_log = {"requested": sibling_commodity, "maize_markets_paired": [],
@@ -305,6 +346,8 @@ def load_afex_panel(path: str | Path, drop_zero_window_series: bool = True,
         "upstream_lag": upstream_lag_log,
         "agroclimatic": climate_log,
         "diesel": diesel_log,
+        "fx_rate": fx_log,
+        "inflation": inflation_log,
         "driver_channels": (
             (f"upstream channel = {sibling_commodity} price at the same market, "
              f"{len(sibling_log['maize_markets_paired'])} of "
@@ -322,11 +365,17 @@ def load_afex_panel(path: str | Path, drop_zero_window_series: bool = True,
                f"{diesel_log['states_covered']}, missing: {diesel_log['states_missing']}, "
                f"real data through {diesel_log['last_real_date']}, forward-filled after that)"
                if diesel_log["requested"] else "diesel still zero-filled (not requested)")
+            + (f"; fx_rate channel = national Official Exchange Rate, real data through "
+               f"{fx_log['last_real_date']}, forward-filled after that"
+               if fx_log["requested"] else "; fx_rate channel unused")
+            + (f"; inflation channel = national Headline Inflation YoY, real data through "
+               f"{inflation_log['last_real_date']}, forward-filled after that"
+               if inflation_log["requested"] else "; inflation channel unused")
         ),
     }
     return Panel(dates, series, pos, midx, price, price_filled,
                  diesel_arr, upstream, rainfall_arr, ndvi_arr,
-                 fourier, has_upstream, log)
+                 fourier, has_upstream, log, fx_arr, inflation_arr)
 
 
 def maize_series_ids(panel: Panel) -> list[int]:
@@ -357,7 +406,7 @@ def generate_afex_grid(panel: Panel, horizons: list[int], lookback: int) -> pd.D
 
 
 def build_afex_scored_windows(panel: Panel, grid: pd.DataFrame, horizons: list[int],
-                              lookback: int, use_lag52: bool):
+                              lookback: int, use_lag52: bool, use_macro: bool = False):
     """Windows for the self-generated grid. Mirrors data.build_grid_windows
     but without panel_fe columns (no incumbent for this dataset); carries a
     carry-forward "naive" column as the do-nothing benchmark, computed
@@ -369,7 +418,7 @@ def build_afex_scored_windows(panel: Panel, grid: pd.DataFrame, horizons: list[i
         if j is None or i is None:
             skipped.append((r["market"], r["origin"], "not_in_panel"))
             continue
-        X, ok = build_sequence(panel, i, j, lookback)
+        X, ok = build_sequence(panel, i, j, lookback, use_macro=use_macro)
         if not ok:
             skipped.append((r["market"], r["origin"], "sequence_incomplete"))
             continue

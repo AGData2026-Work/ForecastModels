@@ -2221,3 +2221,53 @@ misremembered one. Whether D-42's diesel result should also be merged in
 is a separate, open question, not resolved here.
 
 **Cost.** None; caught by reading metadata before use.
+
+---
+
+## D-53. FX rate and inflation built out (D-41's scoped plan), opt-in and verified backward compatible
+
+**Decision.** Two new national-level sequence channels: `rel_log_fx_rate`
+(log-ratio relative to origin, same treatment as diesel/upstream since
+it is a price-like quantity) and `inflation_yoy` (used as a level, same
+treatment as rainfall/NDVI, since a YoY rate is already relative).
+Headline inflation, not food inflation -- food inflation is computed
+substantially from the same grain/food prices this project forecasts,
+which risks the same circularity concern D-38 already flagged for the
+upstream-price driver; headline is a broader macro signal not directly
+derived from this panel's own commodities.
+
+**Implementation, and why it touches shared code.** `Panel.fx_rate` /
+`Panel.inflation_yoy` (`src/data.py`), two new optional fields added
+*after* `log` with `default=None`, so `load_panel` (FEWSNET's loader) did
+not need to change at all. `build_sequence` gained `use_macro: bool =
+False`; when false (every existing config, both branches) it reproduces
+the prior channel set exactly. `build_training_windows` (shared by
+`run.py` and `run_afex.py`) threads the same flag through, also
+defaulting false. `SEQ_BASE_CHANNELS` itself is untouched; a new
+`sequence_channel_names(use_macro)` helper appends the two macro names
+only when asked, used in `run_afex.py`'s metadata logging.
+`_national_monthly_series` (`src/afex_data.py`) loads and forward-fills
+one national monthly series onto the panel's weekly grid -- no per-state
+disaggregation needed, unlike diesel/rainfall/NDVI, since FX and
+inflation are the same value everywhere in Nigeria.
+
+**Verified backward compatible before running anything for real.**
+Smoke run of the untouched `afex_operational_full_exog.yaml`: 42,451
+params, 10 channels, identical to its pre-change numbers. Smoke run of
+the new `afex_operational_full_exog_macro.yaml` (`use_macro: true`):
+43,027 params -- exactly 576 more, matching the expected 2 new channels
+x 96 hidden x 3 GRU gates. `panel_log` confirms real data loaded through
+2026-02 (FX) and 2026-05 (inflation), matching D-41's stated coverage.
+`n_channels` is read dynamically from the constructed window array shape
+in both `run.py` and `run_afex.py` (never a hardcoded constant), so
+nothing needed changing there either.
+
+**This diverges `src/data.py`/`src/afex_data.py`/`src/run_afex.py` from
+`main`**, same as `model.py`'s `num_layers` addition already did. The new
+parameters all default to off, so `main`'s own use of these functions is
+unaffected even though the file contents differ.
+
+**Not yet done.** The actual comparison run (macro on top of full-exog
+vs. without) is queued next; this entry covers the build only.
+
+**Cost.** Two smoke runs (a few seconds each). Full comparison run next.

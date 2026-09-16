@@ -38,7 +38,7 @@ import yaml
 sys.path.insert(0, str(Path(__file__).parent))
 
 from afex_data import build_afex_scored_windows, generate_afex_grid, load_afex_panel, maize_series_ids
-from data import Scaler, SEQ_BASE_CHANNELS, build_training_windows, flat_feature_names
+from data import Scaler, build_training_windows, flat_feature_names, sequence_channel_names
 from model import RecurrentForecaster, predict, train_one
 from walkforward import assign_to_cuts, chronological_split, recency_weights, retrain_cuts
 
@@ -90,6 +90,7 @@ def main() -> None:
     H = cfg["protocol"]["horizons"]
     L = cfg["model"]["lookback"]
     use_lag52 = bool(cfg["features"]["explicit_lag52"])
+    use_macro = bool(cfg["features"].get("use_macro", False))
     seeds = a.seeds or cfg["training"]["seeds"]
     hidden = cfg["model"]["hidden"]
     if a.smoke:
@@ -110,7 +111,9 @@ def main() -> None:
                             rainfall_path=cfg["data"].get("rainfall_path"),
                             climate_state_map_path=cfg["data"].get("climate_state_map_path"),
                             upstream_lag_map=upstream_lag_map,
-                            diesel_source_path=cfg["data"].get("diesel_source_path"))
+                            diesel_source_path=cfg["data"].get("diesel_source_path"),
+                            fx_rate_path=cfg["data"].get("fx_rate_path"),
+                            inflation_path=cfg["data"].get("inflation_path"))
     grid = generate_afex_grid(panel, H, L)
     train_ids = list(range(len(panel.markets)))
 
@@ -152,7 +155,7 @@ def main() -> None:
 
         Xtr_all, Ftr_all, ytr_all, mtr_all = build_training_windows(
             panel, H, L, origin_max_idx=cut_i - 1, train_market_ids=train_ids,
-            use_lag52=use_lag52, use_realised_drivers=False,
+            use_lag52=use_lag52, use_realised_drivers=False, use_macro=use_macro,
         )
         if len(Xtr_all) < cfg["training"]["min_train_windows"]:
             skips.append(dict(cut=cut, reason="too_few_training_windows", n=len(Xtr_all)))
@@ -177,7 +180,8 @@ def main() -> None:
         w = recency_weights(mtr_all["origin"].values[tr_i],
                             cfg["training"]["recency_half_life_weeks"])
 
-        Xte, Fte, yte, mte, sk = build_afex_scored_windows(panel, served, H, L, use_lag52)
+        Xte, Fte, yte, mte, sk = build_afex_scored_windows(panel, served, H, L, use_lag52,
+                                                           use_macro=use_macro)
         if len(sk):
             sk = sk.assign(cut=cut)
             skips.extend(sk.to_dict("records"))
@@ -281,7 +285,7 @@ def main() -> None:
         kind=a.kind, smoke=a.smoke,
         horizons=H, lookback=L, hidden=hidden, seeds=seeds, n_params=int(net.n_params()),
         param_breakdown=net.param_breakdown(),
-        sequence_channels=SEQ_BASE_CHANNELS,
+        sequence_channels=sequence_channel_names(use_macro),
         n_flat_features=n_flat,
         flat_feature_names=flat_feature_names(H, use_lag52, False),
         train_series=panel.markets,
