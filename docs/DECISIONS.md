@@ -2598,3 +2598,39 @@ pipeline run.
 attempt once the fixture matched `load_grid`'s actual column
 requirements (confirmed `target` is only read when `drop_target_dates`
 is non-empty, so the fixture could safely omit it).
+
+---
+
+## D-62. Prediction intervals built for AFEX for the first time
+
+**Decision.** `src/intervals.py` had only ever been run on FEWSNET
+(D-24, D-35). Run against both current AFEX candidates (`afex_operational`
+RNN, `afex_operational_full_exog` GRU), scoped to just those two via a
+filtered `--outdir` (same reason as every other cross-branch script run
+today: this project's gitignored `outputs/` is shared across branches).
+
+**Result: coverage is very high, likely too wide to be practically
+useful.** At alpha=0.2 (80% nominal), realised coverage is 98.8-100% for
+both candidates at every horizon; at alpha=0.1 (90% nominal), 100%
+everywhere. This is the safe direction to be wrong in (an interval that
+covers too often is annoying, not misleading, unlike one that covers too
+rarely), but it means these intervals are almost certainly wider than
+they need to be to actually inform a decision -- an interval that always
+covers isn't distinguishing "confident" from "uncertain" forecasts.
+
+**The tool's built-in regime breakdown does not transfer to AFEX and is
+not reported here as a result.** `intervals.py`'s regime buckets
+(2015-19 / 2020-22 / 2023-24) are FEWSNET-specific date ranges; AFEX's
+panel only starts in 2021-04, so two of the three buckets are nearly
+empty and the third catches most of the panel under a label ("2023-24")
+that doesn't describe a coherent period for this dataset. Rather than
+report a mismatched table as if it means something, this is flagged as a
+tooling gap: a genuine AFEX-appropriate regime split (e.g. matching the
+2023/2024/2025 split used in D-51 today) would need its own pass through
+`intervals.py`, not attempted here given the time this already took.
+
+**Files**: `outputs/afex_intervals_summary.csv`,
+`outputs/afex_intervals_by_market.csv` (the regime file is not copied in,
+per the above).
+
+**Cost.** About 20 minutes.
