@@ -2564,3 +2564,37 @@ automated tests exist" was scored a 0, not a formality.
 failures on first run (two were test-writing mistakes, fixed; one was
 this real bug, fixed in the source), full suite passing in under a
 second, one smoke-test re-verification.
+
+---
+
+## D-61. Workplan items 6-7: an end-to-end integration test, and CI wiring
+
+**Decision.** `tests/test_smoke.py` builds a tiny synthetic panel (4
+markets, 60 weeks) and grid (origins every 5 weeks, horizons 2/3/4) on
+the fly in a pytest tmp dir, writes a from-scratch minimal config
+(`lookback=10`, `hidden=8`, `min_train_windows=5` -- deliberately shrunk
+for speed, not meant to resemble any real config's hyperparameters), and
+invokes `python src/run.py --smoke` against it as a real subprocess, the
+same way a human would from the command line. Asserts exit code 0,
+`run_metadata.json`/`paired_metrics.csv`/`predictions_paired.csv` exist,
+`smoke: true` is tagged, all three horizons are present, and every
+reported MAE is finite. This is the automated version of the `--smoke`
+check RUNBOOK.md already asks a human to run by hand before every real
+launch.
+
+**`.github/workflows/tests.yml` added**: runs `pytest tests/ -v
+--timeout=120` (via the new `pytest-timeout` dependency, added to
+`requirements-dev.txt`) on every push and pull request. Turns the test
+suite from "exists if someone remembers to run it" into "enforced on
+every change" -- though it only blocks a merge if this repo's own branch
+protection settings are later configured to require it, which is a
+GitHub settings decision, not something this entry can set.
+
+**Full suite now**: 26 passed, 2 skipped (the `num_layers` tests, correctly,
+on this branch), runtime 2.2 seconds including the full subprocess
+pipeline run.
+
+**Cost.** About an hour, mostly fixture design; passed on the first real
+attempt once the fixture matched `load_grid`'s actual column
+requirements (confirmed `target` is only read when `drop_target_dates`
+is non-empty, so the fixture could safely omit it).
