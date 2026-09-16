@@ -2406,3 +2406,47 @@ buys.
 
 **Cost.** One full seven-seed run, complete. This closes the AFEX game
 plan's last queued item.
+
+---
+
+## D-57. Upstream-lag circularity resolved: not independent information
+
+**Decision.** D-56 left the circularity question open (is the upstream-lag
+channel -- a lagged, same-commodity price from a different market --
+genuine cross-market information, or redundant with what the follower's
+own price history already carries). Resolved directly: for each of the 14
+follower/leader/lag triples in `upstream_lag_map`, regressed the
+follower's own future return (at h=4/13/26, the model's actual forecast
+horizons) on (a) the follower's own most recent return and (b) the
+leader's return at the map's assigned lag, and measured whether (b)
+improves on (a) alone.
+
+**Result.** Across 42 pair-horizon combinations: median R² gain from
+adding the leader is 0.38 percentage points. Only 3 of 42 clear even an
+uncorrected weak significance threshold, against roughly 2 expected by
+chance alone at that count of tests. What little signal exists concentrates
+at h=4 (Danja/Ikara, Giwa/Leggal, Jalingo/Leggal, Kumo/Leggal show the
+largest, still marginal, gains); by h=13 and h=26 -- the horizons D-38
+reported the channel helping most -- the incremental contribution over
+the follower's own last-known return is indistinguishable from zero.
+
+**Verdict: the circularity concern is confirmed, not dispelled.** This is
+not a data-leakage finding -- the lag is real and no future information
+crosses the line -- it is an economic-content finding: leader and
+follower look like the same regional price signal observed twice, not
+two markets where information genuinely transmits from one to the other
+with a delay. This gives a mechanism for D-56's own harder-to-interpret
+result (a real-but-inconsistent measured benefit across two significance
+tests): a channel with little independent signal will occasionally look
+like it helps in a single fit by chance, without that being a robust,
+repeatable property.
+
+**Consequence.** No config change made by this entry alone -- D-56 already
+showed removing the channel doesn't clearly hurt either, so this closes
+the open question about *what the channel is* (largely redundant
+information, not real market transmission) without by itself mandating
+whether to keep or drop it; that remains the owner's call, now made on
+complete rather than partial evidence.
+
+**Cost.** None to compute; one script against the AFEX panel's own price
+history, no new training.
