@@ -1854,3 +1854,66 @@ change was validated for GRU only and is not claimed to be right for RNN
 if anyone reruns this config with `--kind RNN`.
 
 **Cost.** None; reuses an already-completed, already-verified run.
+
+---
+
+## D-46. Seed-variance check finally applied to AFEX: both adopted candidates are largely noise
+
+**Decision.** `src/seed_analysis.py` (the D-20 method) ported to this
+branch. It required one compatibility fix: it hard-required a
+`convention` column that only exists on the FEWSNET side, since AFEX has
+no conditional/unconditional split. Fixed with a fallback (`"n/a"` where
+the column is absent) rather than forking a second script -- one line in
+`load_runs`, backward compatible with every existing FEWSNET use of the
+same function. No AFEX-side seed-variance check had been run before this;
+every capacity and driver decision since D-27 (including D-39's final
+selection and D-45's hidden=96 adoption) was made on single-seed-median
+numbers only.
+
+**Finding: neither of the two adopted candidates clears its own margin
+over naive by a comfortable amount, and per-market stability is worse
+than anything seen on FEWSNET.**
+
+| Candidate | h | margin/naive/seed-sd | verdict flips (of 14 markets) |
+|---|---|---|---|
+| RNN operational (direction pick) | 4 | -1.48 (confidently worse than naive) | 6 |
+| RNN operational | 13 | +1.49 (barely clears 1.0) | **12** |
+| RNN operational | 26 | **-0.11 (noise)** | 13 |
+| GRU full-exog h96 (accuracy pick) | 4 | -3.19 (confidently worse than naive) | 4 |
+| GRU full-exog h96 | 13 | **+0.66 (noise, below 1.0 bar)** | **13** |
+| GRU full-exog h96 | 26 | +1.04 (barely clears 1.0) | 12 |
+
+**This lands harder than the FEWSNET version of the same check (D-35).**
+FEWSNET's worst per-market flip rate was 12 of 15 (RNN h=4, one horizon).
+Here, both candidates flip on 12-13 of 14 markets at the *other* two
+horizons -- the ones each candidate was actually selected for. GRU
+full-exog's h=13 margin (the horizon D-38/D-39 leaned on to call it the
+accuracy pick) does not clear the 1-seed-sd bar at all. RNN operational's
+h=26 margin over naive is statistically indistinguishable from zero in
+either direction.
+
+**One seed is doing a lot of the damage, and it is a real seed effect,
+not a bug.** RNN operational h=26 per-seed MAE: seed 0 at 139.18, the
+other six spanning 165.7-199.0. That single seed drags the mean down and
+inflates the reported spread; it is a genuine random-init outcome, traced
+directly in `outputs/afex_operational/RNN/forecasts.csv`, not a
+computation error.
+
+**What this does not do.** It does not overturn D-39's selection outright
+-- RNN operational's *directional* hit-rate finding (61.4% at h=13,
+beating both naive baselines, D-29/D-39) is a different metric from the
+MAE-margin check here and has not itself been seed-checked yet; that is
+next. It also does not mean AFEX has learned nothing (both models clearly
+lose to naive at h=4, which is at least a consistent, confident signal,
+just a negative one). What it does mean: neither candidate's claimed edge
+over naive at the horizon it was picked for should be presented as
+established without this caveat attached.
+
+**Consequence.** No config or selection change from this entry alone.
+Flagging this as the single most important AFEX finding of the day before
+continuing the rest of the game plan (the h=13/26 directional seed-check,
+the retroactive capacity-bracket seed-check, and the rest), since it
+changes how much weight the existing D-39 selection can bear.
+
+**Cost.** None to compute; reused seven-seed outputs already on disk.
+One-line source fix in `src/seed_analysis.py`, backward compatible.

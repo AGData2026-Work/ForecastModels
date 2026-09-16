@@ -39,7 +39,8 @@ def load_runs(root: Path) -> pd.DataFrame:
         df = pd.read_csv(p, parse_dates=["origin"])
         build = df["build"].iloc[0]
         model = df["model"].iloc[0]
-        conv = df["convention"].iloc[0]
+        conv = df["convention"].iloc[0] if "convention" in df.columns else "n/a"
+        df["convention"] = conv
         df["run"] = f"{build}|{model}|{conv}"
         frames.append(df)
     if not frames:
