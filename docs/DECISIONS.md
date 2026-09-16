@@ -2303,3 +2303,50 @@ upstream-lag removal).
 
 **Cost.** Two full seven-seed runs, both launched, results in following
 entries once complete.
+
+---
+
+## D-55. FX/inflation result: a clean, seed-confirmed negative, and the largest effect found all day
+
+**Decision/finding.** `afex_operational_full_exog_macro` (D-53) complete.
+Aggregate MAE vs. the actual current baseline (no diesel, per D-52):
+
+| h | baseline MAE | macro MAE | vs_naive_pct baseline | vs_naive_pct macro |
+|---|---|---|---|---|
+| 4 | 61.65 | 59.89 | -7.02 | -3.97 |
+| 13 | 130.00 | 134.80 | +3.96 | +0.42 |
+| 26 | 170.80 | 192.23 | +3.90 | **-8.16** |
+
+Paired by seed (same seven seeds, same method as D-34/D-48):
+
+| h | mean diff (baseline minus macro) | t | significant? |
+|---|---|---|---|
+| 4 | +1.09 | +1.55 | no |
+| 13 | -4.06 | -2.15 | yes (10%) |
+| 26 | **-21.28** | **-7.80** | **yes (well past 5%)** |
+
+**h=26's result is the single most statistically decisive finding of the
+day, in either direction.** All seven seeds individually show macro
+performing worse, by 12.4 to 31.9 MAE each -- not a mixed or borderline
+pattern like nearly everything else checked today, a uniform, large
+effect. h=13 also degrades, significant at 10%, eroding most of the real
+edge D-49 found at that exact horizon (+3.96% down to +0.42% vs naive).
+h=4 moves the other way but not significantly.
+
+**Consistent with D-44/D-48's established pattern, now the clearest
+version of it.** More input channels (capacity, effectively) on this
+5.3-year, data-constrained panel keeps hurting rather than helping,
+except where D-38 found a specific, well-targeted signal (the upstream-
+lag price). National FX and inflation are broad macro series with no
+market-specific variation across this panel's 14-15 maize series, so
+they add channels without adding much market-differentiating information
+per parameter spent -- the recurring theme.
+
+**Consequence.** FX/inflation not adopted. D-41's plan is answered:
+checked, built carefully, tested properly, and rejected on real evidence
+rather than left an open question. The channels stay in the codebase
+(opt-in, off by default, D-53) since the build itself is sound and could
+matter on a panel with more data -- FEWSNET's, not AFEX's -- but no
+AFEX config is being changed as a result of this entry.
+
+**Cost.** One full seven-seed run, complete.
