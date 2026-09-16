@@ -1980,3 +1980,41 @@ minimum at which it appears, not a comfortable margin above it. Worth a
 **Cost.** None to compute; reused the same seven-seed forecasts already
 on disk. Exhaustive enumeration of all C(7,k) subsets, same method as
 D-20's seed-count curve.
+
+---
+
+## D-48. hidden=64->96 adoption (D-45) does not survive a paired seed check either
+
+**Decision.** Same paired-by-seed test as D-34 (FEWSNET's hidden=256
+check), applied to the exact comparison D-45 used to promote hidden=96
+over hidden=64 for GRU full-exog. All three width configs (64, 96, 192)
+share the same seven seeds, so each seed pairs directly across configs.
+
+| h | mean diff (64 minus 96, positive = 96 better) | sd | t | significant? |
+|---|---|---|---|---|
+| 4 | +0.67 | 2.24 | +0.79 | no |
+| 13 | +1.55 | 6.88 | +0.60 | no |
+| 26 | -6.15 | 10.16 | -1.60 | no |
+
+No horizon clears even the 10% threshold (needs \|t\|>1.94). The per-seed
+differences flip sign with no consistent pattern -- h=13's seven pairs are
++5.35, -9.46, +0.43, +9.30, +7.11, +3.72, -5.59, arguably the clearest
+case of noise in this whole session's work. **This is the same failure
+mode as D-34's GRU finding on FEWSNET**, now found independently on a
+different panel: a capacity change adopted on a single-seed-median
+comparison (D-44/D-45) does not survive being checked against its own
+seed-to-seed spread.
+
+**Consequence.** D-45's adoption of hidden=96 as the GRU full-exog
+default is not supported by this test. It is not necessarily wrong
+either -- 96 is not shown to be *worse* than 64, only that the specific
+margin used to justify picking it over 64 is indistinguishable from seed
+noise. Reverting to 64 would rest on equally thin evidence. Flagging
+this rather than acting on it unilaterally: three of this session's
+capacity-adoption decisions (FEWSNET D-29-33's GRU result, and now this
+one) have made the same mistake of trusting a single-seed-median
+comparison, which suggests the fix belongs in the process (seed-pair
+every capacity comparison before adopting one, not after), not in
+re-litigating each one individually.
+
+**Cost.** None to compute; reused seven-seed forecasts already on disk.
