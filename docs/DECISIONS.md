@@ -1748,3 +1748,48 @@ metadata. Full suite: 35 passed, 4 skipped.
 
 **Cost.** About 90 minutes, including the mid-build redesign of
 `check_regression.py`.
+
+---
+
+## D-45. Workplan 5.1: a real pass/fail bar for the post-D-36 world
+
+**Decision.** D-36 retired `change_control()`'s 5%-vs-incumbent gate for
+this workstream without replacing it with anything -- there was no
+answer to "how would we know a future result is good enough to act on,"
+only "how would we know if it beats naive at all." `src/quality_gate.py`
+answers that, as a standalone post-hoc tool in the same family as
+`intervals.py`/`seed_analysis.py`, not a change to `run.py`'s live loop:
+
+**A horizon passes only if both:**
+1. Diebold-Mariano p<0.05 vs naive (already computed into every run's
+   `diebold_mariano.csv`) -- is this specific deployed forecast's
+   historical track record distinguishable from chance.
+2. `margin_over_naive_over_seed_sd` > 1 (D-20/D-34's own bar, reusing
+   `seed_analysis.analyse_run_horizon` rather than reimplementing it) --
+   would a re-trained model likely reproduce this margin.
+
+**Why both, not either.** Today's own work found real cases where a
+result passes one and fails the other -- D-46's GRU full-exog (passed
+seed-variance, initially miscomputed as failing DM until D-50's
+correction) and D-49 (passed DM, seed-variance found separately in D-50)
+being the clearest example. Requiring both is deliberately the more
+conservative reading of a result, not the more convenient one.
+
+**Verified against the actual current models**: `python
+src/quality_gate.py --run-dir outputs/build3_underfit_corrected/
+GRU_unconditional --gate-horizons 4 13` reports PASS at both gate
+horizons (dm_p=.001/.0005, seed ratios 5.84/10.36), matching every DM
+and seed-variance number already on record from today's work exactly.
+RNN build3 also PASSes both. Three new unit tests, including one that
+required fixing a genuine bug in the *test fixture itself* before it
+would pass: independently noisy predictions from several seeds beat a
+single naive guess through ensembling's own variance reduction even with
+zero true architectural edge, so a fair "this model has no real skill"
+fixture has to track naive's own guess, not just be noisy around the
+truth at naive's noise level -- getting this fixture right was itself a
+small, concrete demonstration of the exact ensembling-reduces-noise
+effect this project's own `seed_aggregation: median` setting (D-11)
+relies on.
+
+**Cost.** About an hour, including debugging the test fixture. `main`
+mirror queued next.
