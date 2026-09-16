@@ -2271,3 +2271,35 @@ unaffected even though the file contents differ.
 vs. without) is queued next; this entry covers the build only.
 
 **Cost.** Two smoke runs (a few seconds each). Full comparison run next.
+
+---
+
+## D-54. Two runs launched: D-53's macro comparison, and a seeded upstream-lag ablation
+
+**Decision.** Two full seven-seed GRU runs launched together, both on top
+of the actual current full-exog baseline (D-52's corrected description:
+rainfall + NDVI + upstream-lag, hidden=96, no diesel):
+
+1. `configs/afex_operational_full_exog_macro.yaml` -- D-53's FX/inflation
+   channels added on top. Answers whether macro data helps.
+2. `configs/afex_operational_agroclimatic_h96.yaml` -- the upstream-lag
+   channel *removed*, otherwise identical (rainfall + NDVI only). Recreated
+   from git history (D-39 deleted the original `afex_operational_agroclimatic.yaml`
+   and its raw output; recovered from commit `db693bb~1`, rebuilt at
+   hidden=96 to match current production instead of its original 64).
+   Answers, with an actual seven-seed paired test this time, how much of
+   full-exog's edge depends on the upstream-lag channel specifically --
+   D-38's original agroclimatic-vs-full-exog comparison was single-seed-
+   median only, and the raw per-seed data needed to check it no longer
+   exists after D-39's cleanup, so this could not be answered from
+   existing data without a fresh run.
+
+**Both smoke-verified before the real launch:** macro run at 43,027
+params (576 more than baseline, exactly 2 channels x 96 hidden x 3 GRU
+gates, confirming the new channels are wired correctly); agroclimatic-h96
+at 42,451 params (identical to full-exog's baseline count, confirming no
+channels were accidentally added or dropped beyond the intended
+upstream-lag removal).
+
+**Cost.** Two full seven-seed runs, both launched, results in following
+entries once complete.
