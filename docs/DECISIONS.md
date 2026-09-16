@@ -1560,3 +1560,32 @@ correctly, since that feature is afex-multicommodity-only) -- the
 complementary picture to that branch's 26 passed, 2 skipped.
 
 **Cost.** About five minutes; a direct, unmodified mirror.
+
+---
+
+## D-42. Equity slice: no evidence the model favours producing over consumption markets, or vice versa
+
+**Decision.** The audit flagged that nobody had asked, of a food-security
+tool, whether accuracy is systematically worse for one class of market.
+The panel already carries `market_kind` (11 consumption, 5 producing
+markets); checked directly against GRU build3, unconditional.
+
+**vs-naive advantage by group, and whether the gap between groups is
+itself significant** (Welch's t-test on the per-forecast advantage,
+producing minus consumption):
+
+| h | producing vs-naive | consumption vs-naive | group-difference significant? |
+|---|---|---|---|
+| 4 | +11.3% (DM p=.008) | +6.8% (DM p=.024) | no (t=+1.33) |
+| 13 | +21.8% (DM p=.024) | +18.2% (DM p=.005) | no (t=+0.98) |
+| 26 | +12.6% (DM p=.340) | +15.1% (DM p=.200) | no (t=-0.52) |
+
+**No group clears the bar at every horizon consistently, and no
+horizon shows a significant gap between the two groups.** Both classes
+of market do about equally well or badly at the same horizons; there is
+no evidence in this test that the model systematically shortchanges
+consumption markets (generally poorer, more numerous) in favour of
+producing ones, or the reverse. This is a "run and disclose" finding, not
+a fix -- reported as found, no action follows from it.
+
+**Cost.** About 15 minutes.
