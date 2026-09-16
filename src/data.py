@@ -286,6 +286,14 @@ def build_sequence(
     use_macro=False (the default, and the only mode any existing config uses)
     reproduces this function's channel set exactly as before this parameter
     existed -- no behaviour change for FEWSNET or any prior AFEX run."""
+    if i - lookback + 1 < 0:
+        # A negative slice start silently wraps around in numpy rather than
+        # raising, and an empty resulting slice passes np.isfinite(...).all()
+        # vacuously (True on an empty array), so this must be checked
+        # explicitly rather than relying on the finite-value guard below to
+        # catch it. Caught by tests/test_data.py, never exercised by any real
+        # grid today (every real origin already has full lookback history).
+        return np.empty((0, 0)), False
     sl = slice(i - lookback + 1, i + 1)
     px = p.price[sl, j]
     p0 = p.price[i, j]

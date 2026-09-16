@@ -2511,3 +2511,56 @@ exact numbers already on record from earlier runs today (e.g.
 No behaviour moved, only where the files are read from.
 
 **Cost.** About 30 minutes; 7 smoke runs to verify, all matching.
+
+---
+
+## D-60. Workplan items 4-5: a real test suite, and a genuine bug it found immediately
+
+**Decision.** `tests/` stood up with `pytest` (`requirements-dev.txt` adds
+it, kept separate from the runtime pin list). `tests/conftest.py` builds a
+small, synthetic 3-market/120-week `Panel` fixture so tests run in well
+under a second against no real data file. `tests/test_data.py` (19 tests)
+covers `_safe_log_ratio`, `_interpolate_within_span`,
+`sequence_channel_names`, `build_flat`'s lag52 bounds, and -- the single
+most important one -- `build_sequence`'s no-look-ahead guarantee: a test
+that mutates every price/diesel/upstream value strictly after the origin
+index and asserts the returned window is byte-identical to before the
+mutation. This is the automated version of D-01/D-17's own most important
+rule, previously enforced by code review alone. `tests/test_model.py` (8
+tests, 2 conditionally skipped) covers parameter-count regressions
+(including a direct check that D-53's two new channels cost exactly
+`3 x hidden x 2` for GRU, `hidden x 2` for RNN, matching the manual
+verification done by hand in D-53), that GRU has strictly more parameters
+than RNN at equal hidden (the premise the whole gating-attribution design
+depends on), and the D-58 NaN-fail-loud behaviour, now a permanent
+regression test rather than a one-off manual check. The `num_layers`
+tests skip automatically on this branch (no `num_layers` parameter here)
+and will run on `main`.
+
+**A real bug found on the very first run, before any test had ever been
+adjusted to match observed behaviour.** `build_sequence(p, i, j,
+lookback)` computes `slice(i - lookback + 1, i + 1)`. When `i < lookback -
+1`, that slice's start is negative; numpy interprets a negative slice
+start by wrapping from the end of the array, and when the wrapped start
+lands past the stop, the result is an *empty* array. `np.isfinite(empty
+array).all()` is vacuously `True`, so the function's existing "is this
+window finite" guard does not catch this case, and it falls through to a
+confusing `ValueError` deep inside `_safe_log_ratio` instead of the clean
+`(empty, False)` rejection every other insufficient-history path already
+returns. Fixed with an explicit bounds check before the slice is built.
+
+**This has never affected a real result.** Every real grid's origins
+(`build_training_windows`'s `lo = max(lookback - 1, 52)` floor, and every
+origin actually present in either project's evaluation grid) already
+guarantee `i >= lookback - 1`, so this path was never exercised in any
+run behind any decision in this log. Confirmed by re-running a smoke test
+on `afex_operational_full_exog.yaml` after the fix: identical numbers
+(39.70/72.85/93.18 MAE) to every prior run of that config today. This is
+exactly the kind of latent gap the audit's Data/Infrastructure test
+categories were flagging in the abstract -- concrete evidence for why "no
+automated tests exist" was scored a 0, not a formality.
+
+**Cost.** About two hours: writing the fixture and 27 tests, three
+failures on first run (two were test-writing mistakes, fixed; one was
+this real bug, fixed in the source), full suite passing in under a
+second, one smoke-test re-verification.
