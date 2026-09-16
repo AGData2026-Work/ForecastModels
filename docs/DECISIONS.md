@@ -1544,3 +1544,19 @@ log was ever affected by it.
 
 **Cost.** About 20 minutes: copy, one source fix, one smoke-test
 re-verification, full suite passing.
+
+---
+
+## D-41. Integration test and CI mirrored from afex-multicommodity's D-61
+
+**Decision.** `tests/test_smoke.py` and `.github/workflows/tests.yml`
+copied unchanged (the fixture and subprocess call are branch-agnostic --
+`src/run.py`'s only difference between branches is the pre-existing
+`num_layers` config read, which this test's minimal config doesn't
+exercise). `requirements-dev.txt` gains `pytest-timeout`.
+
+**Full suite here: 24 passed, 4 skipped** (the macro-channel tests,
+correctly, since that feature is afex-multicommodity-only) -- the
+complementary picture to that branch's 26 passed, 2 skipped.
+
+**Cost.** About five minutes; a direct, unmodified mirror.
