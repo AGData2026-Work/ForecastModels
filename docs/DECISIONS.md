@@ -1793,3 +1793,120 @@ relies on.
 
 **Cost.** About an hour, including debugging the test fixture. `main`
 mirror queued next.
+
+---
+
+## D-46. A cheap GRU+RNN ensemble trial: not a confirmed win, not a loss either
+
+**Decision.** D-28 found ensembling build2+build3 doesn't help. Different
+question, not yet asked: does a plain 50/50 average of the two *current*
+build3 architectures (GRU, RNN) do any better than either alone. No new
+training -- reuses `predictions_paired.csv` already on disk for both.
+
+| h | GRU MAE | RNN MAE | 50/50 ensemble MAE | naive MAE |
+|---|---|---|---|---|
+| 4 | 16.47 | 16.91 | 16.49 | 17.97 |
+| 13 | 30.88 | 31.71 | 30.79 | 38.30 |
+| 26 | 48.74 | 49.07 | **47.88** | 56.83 |
+
+**DM test, ensemble vs. each architecture and vs. naive:**
+
+| h | vs GRU | vs RNN | vs naive |
+|---|---|---|---|
+| 4 | p=.81 (tied) | p=.78 (tied) | **p=.001 (real)** |
+| 13 | p=.78 (tied) | p=.78 (tied) | **p=.0005 (real)** |
+| 26 | p=.33 (tied) | (not separately tested, same direction) | p=.115 (not quite) |
+
+**Reading it straight.** The ensemble is never significantly better than
+either architecture alone -- it is not a confirmed improvement. But it is
+never worse either, and it is numerically the best of the three at h=26
+(47.88, beating both GRU's 48.74 and RNN's 49.07 by more than either beats
+the other). This is a mild, plausible-but-unconfirmed candidate, not a
+result on the strength of D-28's own bar. Not adopted; noted as a cheap,
+low-risk option if simplicity of a single architecture is not a
+requirement.
+
+**Cost.** None to compute; reused existing files.
+
+---
+
+## D-47. Four remaining workplan decisions, made and documented rather than left open
+
+**Decision.** The audit's four decision-gated items (2.2, 3.1, 5.1's
+sibling questions 3.3/3.4), resolved now that the engineering
+prerequisites (D-43's persistence, D-45's gate) exist to act on them.
+
+**2.2, which saved model counts as "current":** the most recent retrain
+cut's artifact, not a separately-promoted one. This project already
+retrains on a fixed cadence (13 weeks) rather than on-demand; adding a
+separate promotion step would be process overhead this team's size and
+cadence doesn't need yet. Convention: `outputs/<build>/<kind>_<convention>/
+models/` (D-43) always holds exactly the latest cut by construction
+(older cuts are deleted as each new one is saved), so "current" is simply
+"whatever's there" -- no separate pointer file needed, the directory
+already only ever contains one answer.
+
+**3.1, what "serving" means:** a weekly batch job, not an on-demand
+service. Matches the actual data cadence (weekly prices, 13-week
+retrains) and needs no uptime/latency engineering a request-driven
+service would. `src/predict.py` (new) implements this: load the current
+checkpoint, load the latest available data, produce one batch of
+h=4/13/26 forecasts, write them to a dated file, refuse to run on stale
+input rather than silently forecasting from it.
+
+**3.3, canary convention:** `predict.py` always writes the current
+model's forecasts alongside the immediately-previous cut's, for at least
+one full retrain cycle, so a newly promoted model is never trusted alone
+before there is something to compare it against.
+
+**3.4, rollback convention -- corrected while writing RUNBOOK.md, not
+left as first drafted.** The first draft of this entry claimed rollback
+was free because "D-43 already keeps checkpoints on disk." That is not
+what D-43 actually built: it deletes the *previous* cut's checkpoints
+before saving each new one, specifically to avoid disk bloat, which
+means there is no history on disk to roll back to by design. Caught
+before committing rather than after. The honest convention, written into
+`RUNBOOK.md`: rolling back means either re-running training up to the
+desired earlier cut (real compute cost, since nothing was kept), or
+manually copying a checkpoint elsewhere before the next save would
+overwrite it, a step someone has to remember to take, not one this code
+does automatically. This is a real, acknowledged gap between "avoid
+accumulating hundreds of checkpoints" and "support instant rollback" --
+both are reasonable goals and this entry does not pretend they were
+reconciled for free.
+
+**Cost.** Four decisions plus `src/predict.py`, described in the next
+entry.
+
+---
+
+## D-48. `src/predict.py` built and verified against a real checkpoint
+
+**Decision.** The actual inference path (D-47's 3.1/3.2/3.3), built and
+tested against a real (smoke-scale) checkpoint before being trusted, not
+just the synthetic unit fixtures. Loads the one checkpoint D-43's save
+convention keeps, the same panel path the training run used, reuses
+`build_sequence`/`build_flat`/`Scaler` unchanged (train/serve skew is
+not possible by construction, not by a separate check), and writes one
+forecast per scored market per horizon from the panel's most recent
+available week.
+
+**Three real behaviours verified directly, not assumed:**
+1. **Basic prediction**: ran against a real smoke checkpoint, produced
+   48 rows (16 markets x 3 horizons) with plausible price levels and the
+   correct origin date (the panel's actual last date, 2024-09-18, not
+   today's date -- confirms it is forecasting *from* the data's edge, not
+   confusing "when this script runs" with "what the data supports").
+2. **Staleness gate**: with a realistic 2-week limit, correctly refused
+   with exit code 1 and a clear message (the real panel is 104 weeks
+   stale relative to today, so this is the actually-correct behaviour
+   right now, not a hypothetical).
+3. **Canary comparison**: with a synthetic prior prediction file placed
+   in the same directory, correctly found and merged it, printing both
+   forecasts side by side.
+
+**Cost.** About 90 minutes including the rollback-claim correction
+above. Closes the workplan's Phase 3 to the extent it can be closed
+without a live serving environment to deploy into, which does not exist
+and was never in scope for today.
+entry once built and verified.

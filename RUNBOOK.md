@@ -328,3 +328,32 @@ Two items belong on the review agenda regardless of what the models do: whether 
 production model's published accuracy should be restated unconditionally
 (`docs/CONDITIONAL_CONVENTION.md`), and that the market hierarchy puts Dandume at the
 root rather than Dawanau, which inverts the prior stated in §8.3 of the handoff.
+
+---
+
+## Producing a real forecast, and rolling one back (D-43/D-47)
+
+Everything above evaluates historical accuracy. To get an actual forecast for the
+most recent available week:
+
+```bash
+python src/run.py --config configs/build3.yaml --kind GRU --convention unconditional \
+  --save-latest-cut-models --device cpu
+python src/predict.py --run-dir outputs/build3_underfit_corrected/GRU_unconditional
+```
+
+`--save-latest-cut-models` keeps exactly one cut's checkpoints on disk (the previous
+cut's are deleted as each new one is saved); `predict.py` loads that checkpoint, the
+same panel data path the run used, and produces one forecast per scored market at
+every horizon, refusing to run if the panel's last date is more than
+`--max-staleness-weeks` (default 2) old. It also prints a side-by-side comparison
+against the previous prediction file in the same `predictions/` directory, if one
+exists -- do not trust a newly promoted model's forecast alone until it has been
+compared against at least one prior cycle's.
+
+**To roll back:** the `models/` directory only ever holds the latest cut by design,
+so rolling back means re-running training up to an earlier cut and re-predicting from
+that checkpoint, or, if an earlier cut's checkpoint was manually preserved before it
+would have been overwritten, pointing `--run-dir` at wherever it was copied and
+re-running `predict.py` against it directly. There is no separate rollback command;
+this is the whole mechanism.
