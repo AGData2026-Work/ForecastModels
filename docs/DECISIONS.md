@@ -2018,3 +2018,74 @@ every capacity comparison before adopting one, not after), not in
 re-litigating each one individually.
 
 **Cost.** None to compute; reused seven-seed forecasts already on disk.
+
+---
+
+## D-49. Diebold-Mariano test: a genuinely different check, and it partly rehabilitates GRU full-exog
+
+**Decision.** D-46/D-48's seed-pairing checks ask "would a re-trained
+model reproduce this margin." That is not the only test this project
+already has built: `src/metrics.diebold_mariano` (Newey-West HAC-corrected,
+already used on the FEWSNET side) tests a different question -- given the
+specific, already-deployed median-ensemble forecast, is its paired error
+differential against a reference significantly different from zero over
+the actual historical test record. Never run on AFEX before. Applied to
+the real production forecasts (`predictions_paired.csv`, the seven-seed
+median, not a single seed) for both adopted candidates, against naive and
+against each other, maize-only, all horizons:
+
+| Comparison | h=4 | h=13 | h=26 |
+|---|---|---|---|
+| GRU full-exog vs naive | stat +5.39, p<.0001 (GRU **worse**) | stat -2.27, **p=.023 (GRU better)** | stat -0.50, p=.62 (n.s.) |
+| RNN operational vs naive | stat +4.34, p<.0001 (RNN **worse**) | stat -1.86, p=.063 (n.s., borderline) | stat +0.32, p=.75 (n.s.) |
+| GRU vs RNN head-to-head | stat +3.00, **p=.003 (RNN better)** | stat -0.59, p=.56 (n.s.) | stat -0.87, p=.39 (n.s.) |
+
+**This is the redeeming result for GRU full-exog.** Its 3-month edge over
+naive -- the exact horizon it was picked for in D-39 -- clears p<.05 on a
+standard, established forecast-comparison test, using the full realized
+error record rather than a 7-point seed sample. Per-market breakdown at
+h=13 (12 of 14 markets with enough observations to test): every single
+one has a negative DM statistic, i.e. numerically favours GRU, though none
+individually reaches significance alone at typical per-market sample
+sizes (24-121). The pooled significance is coming from a consistent
+direction spread broadly across nearly the whole panel, not from one or
+two markets carrying it -- the same "broad rather than concentrated"
+pattern the FEWSNET side found reassuring in its own three-month result.
+
+**This does not contradict D-46; it answers a different question.** D-46
+says: retrain this model with a different random seed and the aggregate
+margin might not reappear (training-stochasticity risk). D-49 says: over
+the actual historical period this specific forecast was tested on, its
+track record against naive is not attributable to chance (sampling risk
+in the paired-loss series). Both are real, independent forms of
+uncertainty; a result can pass one and fail the other, and both belong in
+front of reviewers rather than either one silently overriding the other.
+
+**Why GRU and RNN show so little disparity, on direct evidence rather
+than speculation.** Three things line up:
+1. Both architectures predict log-return (proportional change), never a
+   price level -- confirmed in `src/afex_data.py`: `np.log(act) - np.log(p0)`,
+   identical design choice to FEWSNET. This is the same reason the
+   FEWSNET side never found a clean GRU-vs-RNN gap either: gating exists
+   to solve a long-raw-memory problem that this representational choice
+   already mostly removes.
+2. D-44 already showed GRU's *extra* capacity (widening past 64) actively
+   hurts on this data-poor, 277-week panel. The head-to-head DM result
+   here suggests the same constraint applies to GRU's *structural* extra
+   capacity relative to RNN, not only to explicit widening: three gates'
+   worth of parameters have less data to earn their keep here than on
+   FEWSNET's 647-week panel.
+3. Direct evidence, not inference: the DM head-to-head test finds no
+   significant GRU edge at any horizon, and a significant **RNN** edge at
+   h=4 (p=.003). There is no hidden GRU advantage being masked by noise --
+   the standard test that would detect one does not find one.
+
+**Consequence.** GRU full-exog keeps a real, defensible claim to being
+the accuracy pick at h=13 specifically (D-49), even though the capacity
+choice that produced its current hidden size does not (D-48) and its
+seed-level margin is thin (D-46). These are three separate, non-
+contradictory findings about three different things, and belong together
+in whatever goes to reviewers, not resolved into one verdict.
+
+**Cost.** None to compute; reused `predictions_paired.csv` and an
+existing, already-validated function. No new training.
