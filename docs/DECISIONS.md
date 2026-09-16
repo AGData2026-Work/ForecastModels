@@ -2350,3 +2350,59 @@ matter on a panel with more data -- FEWSNET's, not AFEX's -- but no
 AFEX config is being changed as a result of this entry.
 
 **Cost.** One full seven-seed run, complete.
+
+---
+
+## D-56. Upstream-lag ablation, seed-checked: a genuine but inconsistent effect, circularity concern not resolved
+
+**Decision/finding.** `afex_operational_agroclimatic_h96` (D-54, rainfall
++ NDVI only, no upstream-lag) complete. Compared against the actual
+current full-exog baseline (with upstream-lag), two independent tests:
+
+**Aggregate MAE, and paired-by-seed t-test (agroclimatic minus full-exog;
+positive = upstream-lag channel helps):**
+
+| h | agroclimatic MAE | full-exog MAE | mean diff | t | significant? |
+|---|---|---|---|---|---|
+| 4 | 63.12 | 61.65 | +1.34 | +1.51 | no |
+| 13 | 131.65 | 130.00 | +1.80 | +1.03 | no |
+| 26 | 183.77 | 170.80 | +9.14 | +1.99 | **barely, 10% only** |
+
+**Diebold-Mariano, head-to-head on the actual deployed forecasts:**
+
+| h | dm_stat | p | favors |
+|---|---|---|---|
+| 4 | +2.19 | **.028** | **full-exog (significant)** |
+| 13 | +0.72 | .474 | n.s. |
+| 26 | +1.06 | .289 | n.s. |
+
+**The two tests disagree on which horizon shows a real effect, and
+neither shows one at h=13.** DM finds a significant upstream-lag benefit
+at h=4 that the seed-pairing test does not confirm (t=1.51, well short of
+significance); seed-pairing finds a marginal benefit at h=26 (clearing
+only the 10% bar, not 5%) that DM does not confirm (p=.289). This is the
+same two-different-questions relationship as D-46/D-49: DM asks whether
+this specific deployed forecast's track record is better than
+the alternative; seed-pairing asks whether a re-trained model would
+reproduce the difference. Here they land on different horizons rather
+than agreeing or cleanly disagreeing on the same one.
+
+**Consequence for the circularity question this ablation was run to
+answer.** D-38's original claim ("upstream-lag helps in 5 of 6 cells")
+was accurate as a point-estimate description but overstated as evidence
+of a reliable effect -- under either significance test alone, "helps at
+one horizon, unclear at the others" is the more honest summary. This
+does not resolve D-39's standing caveat about the upstream-lag channel's
+circularity (a same-commodity, different-market lagged price, more
+defensible than "exogenous" foreknowledge but not fully independent of
+the target commodity either); if anything it weakens the case for
+excusing that concern on "the effect is too valuable to give up" grounds,
+since the effect is real but not consistently so.
+
+**No config change.** Full-exog is not being reverted to agroclimatic-
+only on this evidence -- a marginal, horizon-inconsistent effect is not
+a case for removing the channel either, only for not overstating what it
+buys.
+
+**Cost.** One full seven-seed run, complete. This closes the AFEX game
+plan's last queued item.
