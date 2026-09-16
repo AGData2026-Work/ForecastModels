@@ -1917,3 +1917,66 @@ changes how much weight the existing D-39 selection can bear.
 
 **Cost.** None to compute; reused seven-seed outputs already on disk.
 One-line source fix in `src/seed_analysis.py`, backward compatible.
+
+---
+
+## D-47. RNN operational's directional finding checked at the seed level: real, but only just converged at 7 seeds
+
+**Decision.** D-46 checked MAE margins; the actual basis for D-39's "RNN
+operational is the direction pick" call was a different metric --
+directional hit-rate against both naive always-up/always-down baselines,
+at h=13. That metric had never been seed-checked either. Direct check,
+one-off script against `outputs/afex_operational/RNN/forecasts.csv`
+(not yet folded into a reusable src/ tool -- flagged for later if this
+becomes a recurring need).
+
+**Per-seed picture: mostly weak.** Of the 7 individual seeds, only one
+(seed 0, 60.4%) beats both the always-up (58.66%) and always-down
+(40.67%) baselines on its own. The other six range 48.0-58.4% -- five of
+them do not even clear the always-up baseline alone. Read naively, this
+would suggest D-39's finding is one lucky seed, not a property of the
+model.
+
+**Seed-count curve tells a different, more reassuring story.** Enumerating
+every subset of the 7 seeds, k=1 through 7, and taking the median-ensemble
+direction call at each subset size:
+
+| k (seeds ensembled) | mean direction hit-rate | % of subsets beating both baselines |
+|---|---|---|
+| 1 | 52.8% | 14.3% |
+| 2 | 54.2% | 9.5% |
+| 3 | 56.3% | 31.4% |
+| 4 | 57.6% | 51.4% |
+| 5 | 59.0% | 61.9% |
+| 6 | 60.5% | 71.4% |
+| 7 (all seeds, the reported number) | 61.0% | 100% |
+
+This is a smooth, monotonic climb with shrinking increments (1.4, 2.1,
+1.2, 1.4, 1.5, 0.6 points) -- the signature of averaging away symmetric
+prediction noise and converging toward a real underlying signal, not the
+signature of one lucky draw. A single seed's prediction can be noisy
+enough to land on the wrong side of a near-zero directional call; median-
+ensembling several seeds cancels that noise and reveals the sign more
+reliably, which is exactly why this project aggregates by seed-median
+everywhere (D-11) rather than reporting a single fit.
+
+**But it converged right at the edge of the seed count actually used.**
+At k=6, only 71.4% of possible subsets already clear both baselines; the
+finding is not yet fully stable even one seed short of what was run. This
+is a weaker form of the D-20 seed-count-curve check (there, k=6 to k=7
+moved the MAE metric under 0.5%; here, going from 6 to 7 seeds is what
+finally pushes every remaining subset over the line). More seeds (10-12,
+per D-20's own suggested cap before exhaustive enumeration gets
+expensive) would confirm whether this keeps climbing toward a firmer
+plateau or has already arrived at one.
+
+**Consequence.** D-39's directional pick for RNN operational is on
+firmer ground than D-46 alone would suggest -- it is a real, converging
+signal, not an artifact of the seed-median aggregation working against
+the model. It is also not yet a settled result: seven seeds is the bare
+minimum at which it appears, not a comfortable margin above it. Worth a
+10-12 seed re-run before this is presented as fully robust.
+
+**Cost.** None to compute; reused the same seven-seed forecasts already
+on disk. Exhaustive enumeration of all C(7,k) subsets, same method as
+D-20's seed-count curve.
