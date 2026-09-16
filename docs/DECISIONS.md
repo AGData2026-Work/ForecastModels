@@ -2155,3 +2155,44 @@ it would be easiest to under-report a self-caught mistake. Not doing
 that here.
 
 **Cost.** None to compute beyond re-running an existing script correctly.
+
+---
+
+## D-51. Year-over-year hypothesis formalized: real at h=13 2023 only, not a growing trend
+
+**Decision.** Earlier informal check (pooled and fixed-market MAPE by
+year) suggested h=4/h=13 accuracy improving 2023->2024->2025 for both
+candidates. Formalized with the DM test, split by year, against naive
+(same method as D-49, now sliced by `origin.dt.year` instead of pooled):
+
+| Candidate | h=13, 2023 | h=13, 2024 | h=13, 2025 |
+|---|---|---|---|
+| GRU full-exog | **p=.003 (real edge)** | p=.540 (no edge, wrong-signed) | p=.113 (not quite) |
+| RNN operational | p=.087 (borderline) | p=.218 (no edge) | p=.848 (no edge) |
+
+**The "improving over time" reading does not survive this.** Naive's own
+MAPE falls every year right alongside the model's (h=13: 31.3% ->23.7%
+->19.6% naive vs 28.4%->23.8%->18.5% GRU) -- both are getting more
+accurate as the panel matures and/or conditions calm, which is a real
+finding, but it is not evidence the *model's edge over naive* is
+growing. That edge is +2.9pp in 2023, ~0.0pp in 2024, +1.1pp in 2025 --
+present, gone, partially back, not a trend in one direction. The DM test
+confirms only 2023 clears significance for GRU at h=13; every other
+year/candidate combination in the earlier "hypothesis" does not.
+
+**h=4 tells a different, sharper story worth noting on its own.** Both
+candidates are confidently *worse* than naive in 2023 (p<.001), and GRU
+flips to significantly *better* than naive in 2025 (p=.041) -- a real
+reversal, not noise, though on a smaller sample (n=144) than the other
+years.
+
+**Consequence.** The earlier framing ("accuracy improves every year") is
+replaced with the more precise one: absolute accuracy for both the model
+and the do-nothing baseline improves together over 2023-2025; the
+model's advantage *over* that baseline does not show a consistent trend
+and is only confirmed real for GRU full-exog at h=13 in 2023 specifically.
+Any claim built on the informal version of this finding should be
+restated using this entry, not the earlier one.
+
+**Cost.** None to compute; reused `predictions_paired.csv` already
+verified correct in D-50.
