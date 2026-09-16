@@ -1589,3 +1589,50 @@ producing ones, or the reverse. This is a "run and disclose" finding, not
 a fix -- reported as found, no action follows from it.
 
 **Cost.** About 15 minutes.
+
+---
+
+## D-43. Model persistence: workplan item 9, the real prerequisite for everything serving-related
+
+**Decision.** Confirmed before starting: no `torch.save` existed anywhere
+in this codebase. Every model ever trained behind every entry in this log
+was discarded the moment its evaluation script finished. Nothing about
+serving, a canary process, or rollback (the audit's Infrastructure tests
+#4/#6/#7) was possible until this existed.
+
+**`save_checkpoint`/`load_checkpoint` added to `src/model.py`**: bundles
+a model's `state_dict`, its `Scaler`'s fitted numpy state (mean/sd for
+sequence channels, flat features, and targets -- a saved model is
+useless without the exact scaling it was trained under), and metadata
+(kind, hidden, channel/flat counts, market list, `num_layers`) into one
+`torch.save`'d file. `load_checkpoint` returns the raw pieces; the caller
+reconstructs the actual `RecurrentForecaster`/`Scaler` objects, so
+loading never silently depends on those classes' current implementation
+matching what produced the file.
+
+**Wired into `src/run.py` behind `--save-latest-cut-models`, off by
+default.** When set, only the most recent retrain cut's seven seed
+checkpoints are kept (the previous cut's directory is deleted before the
+new one is written), so a full 35-cut run doesn't accumulate hundreds of
+checkpoints by default -- this answers 2.1's own storage caveat directly
+rather than leaving it as an open question.
+
+**Verified three ways, in increasing order of realism.** (1) A synthetic
+unit test (`tests/test_model.py::TestCheckpointRoundTrip`): train a tiny
+network, save it, reload it, assert the reloaded model's predictions are
+bit-for-bit identical to the original's. (2) A real smoke run of
+`build3.yaml` GRU *without* the new flag: identical numbers
+(6.86/28.51/48.60 MAE) to every prior smoke run today, confirming zero
+default-behaviour change. (3) The same smoke run *with* the flag: exactly
+one `models/cut_<date>/` directory exists afterward (the last of the
+three smoke cuts, not all three), and the reloaded checkpoint's metadata
+and parameter count (72,579, matching `hidden=128`) are exactly right.
+
+**Not yet done, and explicitly out of scope for this entry**: `run_afex.py`
+does not have this wired in yet (same pattern, not applied); the
+"which saved model counts as *the* current one" convention (workplan
+2.2) and the serving-cadence decision (3.1) are still open and are what
+this unlocks, not what it resolves.
+
+**Cost.** About an hour: the save/load functions, the run.py wiring, one
+new unit test, three real verifications.

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import sys
 from pathlib import Path
 
@@ -33,7 +34,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from data import (Scaler, SEQ_BASE_CHANNELS, build_grid_windows,
                   build_training_windows, flat_feature_names, load_grid, load_panel)
 from metrics import (change_control, diebold_mariano, paired_table, score_long)
-from model import RecurrentForecaster, predict, train_one
+from model import RecurrentForecaster, predict, save_checkpoint, train_one
 from walkforward import (assign_to_cuts, chronological_split, recency_weights,
                          retrain_cuts)
 
@@ -68,6 +69,11 @@ def main() -> None:
     ap.add_argument("--hidden", type=int, default=None)
     ap.add_argument("--device", default="cpu", choices=["cpu", "mps", "cuda"])
     ap.add_argument("--threads", type=int, default=0)
+    ap.add_argument("--save-latest-cut-models", action="store_true",
+                    help="persist each seed's trained model + scaler for the most "
+                         "recent retrain cut only (overwrites any prior cut's save "
+                         "in this run's output dir); off by default, zero effect "
+                         "on any existing invocation")
     ap.add_argument("--panel", default=None, help="override data.panel from the config")
     ap.add_argument("--baseline", default=None,
                     help="override data.baseline_forecasts from the config")
@@ -181,6 +187,17 @@ def main() -> None:
             continue
         Xte_s, Fte_s = sc.transform(Xte, Fte)
 
+        if a.save_latest_cut_models:
+            # Only the most recent cut's models are ever kept on disk: the
+            # previous cut's directory (if any) is removed before this one
+            # is written, so a full run doesn't accumulate 35 cuts x 7
+            # seeds of checkpoints by default (D-63).
+            models_dir = out / "models"
+            if models_dir.exists():
+                shutil.rmtree(models_dir)
+            cut_dir = models_dir / f"cut_{pd.Timestamp(cut).date()}"
+            cut_dir.mkdir(parents=True, exist_ok=True)
+
         for seed in seeds:
             torch.manual_seed(seed)
             np.random.seed(seed)
@@ -204,6 +221,16 @@ def main() -> None:
                 lr_schedule=cfg["training"]["lr_schedule"],
                 huber_delta=cfg["training"]["huber_delta"],
             )
+            if a.save_latest_cut_models:
+                save_checkpoint(net, sc, cut_dir / f"seed_{seed}.pt", meta={
+                    "build": cfg["build"]["name"], "kind": a.kind,
+                    "convention": a.convention, "cut": str(pd.Timestamp(cut).date()),
+                    "seed": seed, "hidden": hidden, "n_channels": Xtr.shape[-1],
+                    "n_flat": Ftr.shape[1], "n_markets": len(panel.markets),
+                    "n_horizons": len(H), "markets": panel.markets,
+                    "num_layers": cfg["model"].get("num_layers", 1),
+                    "market_embedding_dim": cfg["model"]["market_embedding_dim"],
+                })
             yhat = sc.y_inverse(predict(net, T(Xte_s), T(Fte_s),
                                         I(mte["market_id"].values)))
             hist = info.pop("history", [])

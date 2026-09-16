@@ -151,3 +151,27 @@ def train_one(
 def predict(net: RecurrentForecaster, X, F, I) -> np.ndarray:
     net.eval()
     return net(X, F, I).cpu().numpy()
+
+
+def save_checkpoint(net: RecurrentForecaster, scaler, path, meta: dict) -> None:
+    """Persist a trained model, its exact fitted scaling, and enough
+    metadata to reconstruct the network shape -- without all three, a
+    saved model is not usable. `scaler` is a `data.Scaler` instance;
+    only its plain numpy attributes are saved, not the class itself, so
+    loading this file never depends on `data.Scaler`'s implementation
+    matching what's currently in `src/`."""
+    scaler_state = {k: v for k, v in vars(scaler).items()}
+    torch.save({
+        "state_dict": net.state_dict(),
+        "scaler_state": scaler_state,
+        "meta": meta,
+    }, path)
+
+
+def load_checkpoint(path, map_location="cpu"):
+    """Inverse of `save_checkpoint`. Returns (state_dict, scaler_state,
+    meta); reconstructing the actual `RecurrentForecaster` and `Scaler`
+    objects from these is the caller's job, since that needs the
+    caller's own knowledge of which classes are current."""
+    ckpt = torch.load(path, map_location=map_location, weights_only=False)
+    return ckpt["state_dict"], ckpt["scaler_state"], ckpt["meta"]
