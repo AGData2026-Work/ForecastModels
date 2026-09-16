@@ -1636,3 +1636,71 @@ this unlocks, not what it resolves.
 
 **Cost.** About an hour: the save/load functions, the run.py wiring, one
 new unit test, three real verifications.
+
+---
+
+## D-63. Process error, and the finding it surfaced: D-47's directional result does not replicate
+
+**Decision.** Launching more seeds for RNN operational's h=13 directional
+result (the workplan's own next step after D-47) was run with
+`--seeds 0 1 ... 11` but **no `--out` override**, so it wrote to the
+default path and overwrote `outputs/afex_operational/RNN/` -- the
+original 7-seed production output -- instead of writing alongside it.
+This breaks D-16's own retained-evidence precedent, which had otherwise
+been followed carefully everywhere else today (D-45's superseded-output
+handling, D-50's correction, D-56's ablation). No entry already written
+in this log depends on the raw file surviving, but the exact 7-seed
+`forecasts.csv`/`predictions_paired.csv` D-47 was computed from no
+longer exists, and since these AFEX runs use `--device mps` -- which
+this project's own `RUNBOOK.md` already documents as not bit-reproducible
+run to run, unlike `cpu` -- rerunning seeds 0-6 does not reliably recover
+the original numbers. Flagged plainly rather than smoothed over.
+
+**What the new 12-seed run actually shows, and it is the most important
+finding to come out of today's AFEX work.** Recomputing D-47's exact
+seed-count-curve method on the new data:
+
+| k (seeds) | mean direction hit-rate | % of subsets beating both baselines |
+|---|---|---|
+| 1 | 47.6% | 0.0% |
+| 6 | 49.7% | 0.1% |
+| 12 (all) | 49.7% | 0.0% |
+
+**This does not replicate D-47's finding at all.** D-47 found a smooth,
+monotonic climb from 52.8% (k=1) to 61.0% (k=7, all seeds), read as
+noise cancelling out to reveal a real signal. The new, larger sample
+shows no such climb -- it sits flat around 48-50% (a coin flip) at every
+seed-count, and the fraction of subsets beating both naive baselines
+never exceeds 2.7% at any k, against D-47's 100% at k=7. Checked directly:
+seeds 0-6 *in this new file* (the same seed numbers D-47 used) give a
+median direction hit-rate of 47.4%, not 61.0% -- confirming this is not
+just "different seeds happened to land differently," the same seed
+numbers produced a materially different result on MPS this time.
+
+**Consequence for D-39's selection.** RNN operational was picked as the
+"direction pick" specifically on the strength of D-47's h=13 result. That
+result does not hold up under a larger, independent seed sample. Of the
+two things this AFEX exploration had going for it after today's full
+rigor pass (D-49's GRU full-exog DM significance, and D-47's RNN
+directional signal), **only one survives**: GRU full-exog's h=13 edge
+over naive (D-49) is unaffected by any of this, since it is a
+Diebold-Mariano test on the actual historical forecast record, not a
+seed-retraining question, and its underlying file was never touched
+today. RNN operational's own selection rationale is now unconfirmed,
+not merely "not yet firmed up" as D-47 concluded.
+
+**What this does not do.** It does not prove RNN operational is worse
+than GRU full-exog at direction, or that no real signal exists -- only
+that the specific evidence claimed for one did not survive a proper
+retest. No config change is made here; this is a finding, and D-39's
+standing selection is now flagged as resting on weaker ground for its
+RNN half than previously believed.
+
+**Process fix going forward.** Any future exploratory run that is not
+meant to become the new production artifact gets an explicit `--out`
+override to a clearly-named side directory, full stop, regardless of how
+routine the run seems.
+
+**Cost.** One seven-seed production artifact is gone and not
+recoverable; the replacement finding is more informative than what was
+lost.
