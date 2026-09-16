@@ -1459,3 +1459,36 @@ giving RNN its own hidden=256 variant is still open and still the owner's
 call.
 
 **Cost.** None to compute; reused predictions_paired.csv already on disk.
+
+---
+
+## D-38. RNN hidden=256 not adopted; build3.yaml stays at hidden=128 for both architectures
+
+**Decision.** Owner decision, 2026-09-16: RNN's hidden=256 result (D-34)
+is not adopted. `build3.yaml`'s `hidden: 128` default is unchanged for
+both GRU and RNN. This closes the parity-vs-performance question D-34
+raised.
+
+**Why, on the evidence.** D-37 tested the actual question that mattered:
+does RNN-256 clearly beat the current GRU-128 pick, independent of the
+parity principle. It does not. Head-to-head against GRU-128: accuracy
+favours RNN-256 numerically at all three horizons but clears significance
+at none of them (p=.16/.94/.16); direction is tied at h=4 and h=26 but
+**GRU-128 significantly beats RNN-256 at h=13** (60.0% vs 56.7% correct,
+McNemar chi2=14.45) -- widening RNN to 256 cost real 3-month directional
+accuracy, the horizon this project's own naive-benchmark work (D-24, the
+pre-D-36 significance testing) had already flagged as the one place a
+result reliably held up. RNN-256 was never a confirmed win being declined
+for a procedural reason; it was a mixed result, unconfirmed on the
+dimension it improved and confirmed worse on the dimension that mattered
+most, once actually tested against the model already in production.
+
+**Consequence.** Both FEWSNET architectures stay at hidden=128, sharing
+one `build3.yaml`, preserving the "same everything but the recurrent
+cell" guarantee this project's design depends on. `configs/build3_hidden96/
+192/256/384.yaml` and `build3_2layer.yaml` remain on disk as documented,
+tested, not-adopted alternatives (D-16's retain-don't-delete precedent),
+available to revisit if a future change to the data or protocol changes
+the calculus.
+
+**Cost.** None; a documentation-only decision.
