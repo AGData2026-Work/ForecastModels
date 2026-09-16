@@ -1340,3 +1340,61 @@ as known, current limitations, not smoothed into the headline numbers.
 
 **Cost.** Two script reruns, no new training. `outputs/` is gitignored;
 only this entry is a tracked-file change.
+
+---
+
+## D-36. Owner instruction: drop the incumbent, naive is the only benchmark
+
+**Decision.** Owner instruction, 2026-09-16: this workstream no longer compares
+GRU/RNN build3 against `panel_fe` (the panel fixed-effects incumbent). Panel FE is
+its own workstream, managed internally by the owner. The naive (do-nothing)
+forecast is the sole benchmark for this project going forward -- for headline
+reporting, for any pass/fail judgment, and for how results are framed in
+conversation and in documents produced from here on.
+
+**Why this reverses a founding premise of the project, not a small tweak.**
+Everything from `CLAUDE.md`'s original framing ("a challenger evaluation for a
+production forecasting model") through `change_control.json`'s 5%-vs-incumbent
+gate through D-27's own scoring of which candidate to prioritize ("vs-incumbent MAE
+... 60%, the metric this whole evaluation exists to answer") was built around
+beating panel_fe. That framing is retired as of this entry. It is not being erased
+from the record -- every prior decision that reasoned about the incumbent was a
+correct description of the evaluation as it was designed at the time, and stays as
+written (D-16's own precedent: retain superseded work, do not rewrite it).
+
+**What prompted it, stated plainly.** Reviewing today's fresh Diebold-Mariano
+checks (this session, same day): build3 GRU/RNN are statistically indistinguishable
+from panel_fe at h=4 and h=13 (p=.40-.80), and significantly *worse* than panel_fe
+at h=26 (p<.001, both architectures) -- while both architectures show a real,
+DM-confirmed edge over naive at h=4 and h=13. The owner's read: with the incumbent
+already covered by its own internally-managed workstream, holding this project's
+models to a bar they are not shown to clear (and are shown to lose on at h=26) is
+not the useful comparison; whether they beat doing nothing is.
+
+**What actually changes.**
+- `CLAUDE.md`'s "What this is", the "recompute the incumbent" hard rule, the
+  `change_control.json` rule, the units/conventions line on `vs_panel_fe_pct`, the
+  "things that will bite" panel-FE item, the "when something looks too good"
+  checklist, and the `src/metrics.py` layout line are all updated to reflect this.
+  `RUNBOOK.md`, `docs/METHODOLOGY.md`, `docs/CONDITIONAL_CONVENTION.md` and
+  `docs/DATA_AUDIT.md` each get a short banner note pointing here, without
+  rewriting their substantive (and still factually accurate) content.
+- Nothing is deleted from the codebase. `metrics.paired_table` still recomputes
+  `panel_fe` on the same pairs (D-01/D-04's grid-integrity guarantee is a data
+  question, not a reporting one, and stays); `change_control()` still exists and
+  still runs; `vs_panel_fe_pct` still lands in every `paired_metrics.csv`. Removing
+  working, harmless code because a reporting decision changed would be a second,
+  unrelated decision, and was not asked for. This entry governs what gets
+  *reported and judged*, not what the pipeline is capable of computing.
+- Every historical decision entry (D-01 through D-35) that discusses the
+  incumbent is left exactly as written. They are accurate history of an evaluation
+  that was, at the time, designed around beating panel_fe.
+
+**Consequence for reading anything from D-37 onward.** Any figure phrased as "beats
+naive by X%" is this workstream's live comparison. Any figure that would have been
+phrased as "beats/loses to panel_fe by X%" should not appear as a headline claim
+going forward; if panel_fe numbers are computed for some other internal reason (the
+owner's separate workstream may still need them), they are not this project's
+result.
+
+**Cost.** None to compute; a documentation and framing change only.

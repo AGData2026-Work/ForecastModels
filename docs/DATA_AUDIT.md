@@ -1,5 +1,9 @@
 # Data audit
 
+**As of D-36 (2026-09-16, see `CLAUDE.md`), this workstream's only benchmark is the
+naive forecast; incumbent/`panel_fe` figures below are data-provenance history, not
+a live comparison target.**
+
 Everything below was measured from the supplied files, not carried over from
 notes. Reproduce with `python src/audit.py`.
 

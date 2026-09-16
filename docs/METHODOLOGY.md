@@ -1,5 +1,10 @@
 # Methodology
 
+**As of D-36 (2026-09-16, see `CLAUDE.md`), this workstream's only benchmark is the
+naive (do-nothing) forecast.** References below to the incumbent/`panel_fe` describe
+the evaluation as it was designed and run before that date; they are accurate
+history, not current comparison targets.
+
 Technical specification of both builds. Decisions are cited as D-nn against
 `DECISIONS.md`, where the reasoning and cost of each sits.
 

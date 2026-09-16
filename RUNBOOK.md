@@ -1,5 +1,11 @@
 # Runbook: running this on a Mac through Claude Code
 
+**As of D-36 (2026-09-16, see `CLAUDE.md` and `docs/DECISIONS.md`), this
+workstream's only benchmark is the naive (do-nothing) forecast.** Anything below
+that discusses `panel_fe`/the incumbent is accurate as a record of the commands
+that were run and their output at the time, but is no longer live guidance for
+what to compare these models against.
+
 Follow in order. Steps 1 to 6 take about fifteen minutes and prove the pipeline
 before you commit hours to it. Step 7 is the long run.
 

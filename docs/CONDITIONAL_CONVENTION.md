@@ -1,5 +1,12 @@
 # Which driver convention did the incumbent use?
 
+**As of D-36 (2026-09-16, see `CLAUDE.md`), this workstream no longer compares
+against the incumbent, so the question below is no longer live for that purpose.**
+It is kept as-is because the underlying finding (the incumbent was very likely
+measured with foreknowledge of its drivers) is still true and still the reason this
+project never presents a conditional/foreknowledge figure as achievable accuracy,
+which remains a hard rule regardless of what the model is being compared against.
+
 This is the most consequential open question in the comparison, and it had to be
 inferred because the script that produced `07_panel_fe_forecasts.parquet` was not
 available.
