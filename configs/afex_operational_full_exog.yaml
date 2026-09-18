@@ -20,6 +20,10 @@
 # the h=13 margin over naive itself doesn't clear the seed-sd bar either.
 # 64 is not shown to be better than 96 -- reverting removes an unconfirmed
 # change rather than replacing it with a confirmed one. See D-65.
+#
+# lookback=26 (adopted from 52 by D-66). Seed-paired check found a small
+# but significant improvement at h=4 (t=6.02); h=13/h=26 show no
+# significant difference in either direction. Owner decision, 2026-09-18.
 # ---------------------------------------------------------------------------
 build:
   name: afex_operational_full_exog
@@ -60,7 +64,7 @@ features:
   explicit_lag52: true
 
 model:
-  lookback: 52
+  lookback: 26                     # adopted from 52, see D-66
   hidden: 64                       # reverted from 96, see D-65
   market_embedding_dim: 8
   head_dropout: 0.2

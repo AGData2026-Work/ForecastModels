@@ -2790,3 +2790,75 @@ seed-noise-adjacent. That remains the more important open question for
 this build than its width ever was.
 
 **Cost.** No new compute; file swap and config edit only.
+
+---
+
+## D-66. Lookback window bracket for both AFEX finalists; owner adopts lookback=26 for GRU full-exog
+
+**Decision/finding.** Lookback (52 weeks since inception, never swept on
+either AFEX build or FEWSNET) bracketed at 26 and 104 weeks, both AFEX
+finalists (`afex_operational.yaml` RNN, `afex_operational_full_exog.yaml`
+GRU, both at their D-64/D-65-confirmed hidden=64). Smoke-tested first per
+RUNBOOK discipline. A fresh current-code baseline of GRU full-exog at
+lookback=52 was also run alongside this (see below) to close a gap left
+by D-65's revert.
+
+**lookback=104 is not a valid comparison and is not being treated as
+one.** Its grid shrinks from n=895 to n=286 (18 retrain cuts down to 12;
+RNN's final cut serves only 4 markets, down from 8). A longer lookback
+pushes the earliest usable origin later, so this scores a different,
+smaller, later-starting slice of the panel, not the same pairs under a
+different model -- the same class of error D-01 named on the FEWSNET
+side (comparing MAEs across different grids). The raw numbers look much
+worse (vs_naive as low as -164% for GRU at h=26) but that is confounded
+with the coverage collapse, not a clean read on window length. The
+coverage loss alone -- an already data-constrained panel (D-27/D-44)
+losing a third of its cuts and most of its per-cut market coverage --
+is disqualifying on its own; not pursued further.
+
+**lookback=26 is a valid, grid-matched comparison (n=895 both sides) and
+was seed-paired the same way as D-64/D-48:**
+
+| | RNN operational h=4 | GRU full-exog h=4 | GRU full-exog h=13 | GRU full-exog h=26 |
+|---|---|---|---|---|
+| mean diff (52 minus 26) | -1.09 | **+0.64** | +0.56 | -2.42 |
+| sd | 1.79 | 0.28 | 3.25 | 5.82 |
+| t | -1.61 | **6.02** | 0.46 | -1.10 |
+| significant? | no | **yes (well past 1%, df=6)** | no | no |
+
+RNN operational shows no significant lookback effect at any horizon.
+GRU full-exog shows a small (MAE 61.36 vs 62.03, about 1%) but very
+consistent (low seed-to-seed spread) improvement at h=4; vs_naive_pct
+moves from -7.69% to -6.52% -- still a loss to naive at that horizon, a
+smaller one. At h=13, the horizon D-38/D-39's accuracy case actually
+rests on, and which D-46 already found to be seed-noise-thin regardless
+of width, lookback makes no confirmed difference (point estimate mildly
+favours 26, not significant). At h=26 the point estimate mildly favours
+the old 52 (t=-1.10), also not significant -- raised explicitly to the
+owner before any adoption, since "not significant" is not the same as
+"no effect either way" and the direction should not be hidden just
+because it didn't clear the bar.
+
+**Owner decision, 2026-09-18: adopt lookback=26 for GRU full-exog,
+conditional on no confirmed harm at the longer horizons.** Since neither
+h=13 nor h=26 clears significance in either direction, this project's own
+standard (D-48: an unconfirmed result is not treated as real, whichever
+way it points) means the condition is met. `configs/
+afex_operational_full_exog.yaml`'s `lookback` changed from 52 to 26.
+`outputs/afex_operational_full_exog/GRU/` now holds the lookback=26 run;
+the lookback=52 run (the fresh, current-code-verified baseline, not the
+older archived one) is retained at `outputs/afex_operational_full_exog/
+GRU_lookback52_superseded/`, D-16 precedent. RNN operational's lookback
+stays at 52 -- no significant effect found, no reason to change it.
+
+**Closing a loose end from D-65 along the way.** A fresh re-run of GRU
+full-exog at hidden=64/lookback=52 under this branch's current code
+(fail-loud NaN checks, invariants, checkpointing -- none of which existed
+when the archived hidden=64 output D-65 restored was first produced)
+reproduced identical numbers (MAE 62.03/132.40/167.46, matching to the
+displayed precision). D-65's caveat that the restored output was
+unverified under current code is now closed: the safeguards added since
+change what gets checked, not what training produces.
+
+**Cost.** About 15 minutes of compute across five full 7-seed runs
+(four-config bracket plus the fresh baseline), smoke-tested first.

@@ -1,0 +1,66 @@
+# ---------------------------------------------------------------------------
+# AFEX full-exog (GRU, accuracy pick, hidden=64 per D-65), lookback=104 --
+# bracketing the current 52-week lookback upward. AFEX's panel is only 277
+# weeks total, far shorter than FEWSNET's 647, so this is a real test of
+# whether a longer window is even viable here, not just whether it helps.
+# Nothing else differs from afex_operational_full_exog.yaml.
+# ---------------------------------------------------------------------------
+build:
+  name: afex_operational_full_exog_lookback104
+  note: >
+    AFEX full-exog (GRU accuracy pick) with lookback=104 instead of 52.
+    Smoke-test first: AFEX's 277-week panel may not have enough history to
+    support this window the way FEWSNET's 647-week panel does.
+
+data:
+  panel: data/external/afex_multicommodity_panel.xlsx
+  ndvi_path: data/external/ndvi_cleaned.xlsx
+  rainfall_path: data/external/rainfall_cleaned.xlsx
+  climate_state_map_path: data/external/ndvi_state_map.xlsx
+  upstream_lag_map:
+    Saminaka: [Jengre, 1]
+    Kumo: [Leggal, 1]
+    Pambegua: [Anchau, 1]
+    Bali: [Ikara, 1]
+    Garbabi: [Gazabu, 1]
+    Tundun Saibu: [Anchau, 1]
+    Dawanau: [Tundun Saibu, 1]
+    Jalingo: [Leggal, 1]
+    Danja: [Ikara, 1]
+    Leggal: [Jengre, 1]
+    Jengre: [Giwa, 1]
+    Giwa: [Leggal, 1]
+    Ikara: [Bali, 2]
+    Gazabu: [Ikara, 1]
+
+protocol:
+  horizons: [4, 13, 26]
+
+features:
+  fourier_k: 2
+  explicit_lag52: true
+
+model:
+  lookback: 104                    # was 52
+  hidden: 64
+  market_embedding_dim: 8
+  head_dropout: 0.2
+  input_dropout: 0.1
+
+training:
+  seeds: [0, 1, 2, 3, 4, 5, 6]
+  epochs: 200
+  batch_size: 256
+  lr: 0.003
+  patience: 25
+  grad_clip: 1.0
+  weight_decay: 0.0001
+  lr_schedule: cosine
+  huber_delta: 1.0
+  val_fraction: 0.15
+  purge_weeks: 78
+  recency_half_life_weeks: 156
+  scale_targets: true
+  retrain_every_weeks: 13
+  min_train_windows: 200
+  seed_aggregation: median
