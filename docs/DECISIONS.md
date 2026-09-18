@@ -2735,3 +2735,58 @@ build, independently of GRU full-exog.
 
 **Cost.** About 5 minutes of compute (3 full 7-seed runs, 277-week panel);
 smoke-tested first per RUNBOOK discipline.
+
+---
+
+## D-65. Owner decision: revert GRU full-exog to hidden=64, closing D-45/D-48
+
+**Decision.** Owner decision, 2026-09-18: `configs/afex_operational_full_exog.yaml`'s
+`hidden` reverted from 96 to 64. `outputs/afex_operational_full_exog/GRU/`
+now holds the original hidden=64 run again (swapped back from where D-45
+moved it); the hidden=96 run is retained, not deleted, at
+`outputs/afex_operational_full_exog/GRU_hidden96_superseded/`, same D-16
+retention precedent D-45 itself used in the other direction.
+
+**Why, on the evidence.** D-48's seed-paired check found the 96-vs-64
+margin D-45 promoted on does not clear significance at any horizon
+(h=13's seven per-seed differences flip sign with no pattern -- the
+clearest noise case found in this workstream). Reverting removes a change
+that was never actually confirmed, rather than replacing it with one that
+is.
+
+**What this does NOT fix, stated plainly rather than implied.** Reverting
+to 64 is not itself a validated improvement -- it is the absence of an
+unconfirmed one. Three things stay true regardless of which width the
+config uses:
+
+1. **D-46 already found the whole h=13 accuracy case for this build is
+   thin**, independent of width: the margin over naive at h=13 (the
+   horizon D-38/D-39 leaned on to call this build the accuracy pick)
+   does not clear its own seed-sd bar either (+0.66, below the 1.0
+   threshold). Reverting the width does nothing to address this; hidden=64
+   was already running when D-39 made that selection, and D-46 checked
+   the resulting build, not the width choice specifically.
+2. **Neither 64 nor 96 has been shown to actually be good** -- only that
+   96 was not shown to be *better*. D-48 is a null result, not a result
+   favouring 64. If 64 also failed a fresh seed-paired MAE check against,
+   say, a completely different width or specification, this decision
+   would look identical from the outside (a revert to the last thing that
+   wasn't disproven) while resting on no positive evidence either way.
+   Nobody has run that check, because nobody has proposed a further
+   width change to check it against.
+3. **This is a config/output revert, not a re-verified one.** The
+   restored hidden=64 output is the same file D-45 archived, not a fresh
+   run; it has not been re-run under this branch's current code (D-58
+   through D-64's fail-loud NaN checks, data invariants, checkpointing).
+   It predates several of those safeguards. If a fresh hidden=64 run
+   under current code produced materially different numbers, that would
+   be worth knowing before treating this as a settled default rather than
+   a placeholder default.
+
+**Consequence.** `afex_operational_full_exog.yaml` (GRU) is back to
+hidden=64. This closes D-45/D-48 as a pair but does not close D-46's
+larger, still-open finding that this build's headline h=13 result is
+seed-noise-adjacent. That remains the more important open question for
+this build than its width ever was.
+
+**Cost.** No new compute; file swap and config edit only.

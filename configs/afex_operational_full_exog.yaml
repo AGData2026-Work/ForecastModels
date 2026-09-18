@@ -13,18 +13,19 @@
 # upstream channel here, same treatment as an unpaired market in the
 # sorghum build (D-32).
 #
-# hidden=96, not the original 64: D-43/D-44's width-capacity bracket found
-# 96 beats 64 for GRU at h=4/h=13, while 192 is worse than 64 at every
-# horizon -- the opposite direction from FEWSNET's build3 bracket, because
-# AFEX has far less data to support extra capacity. Validated for GRU
-# specifically (the kept architecture for this build, D-39); not
-# separately re-validated for RNN, which is no longer a full-exog finalist.
+# hidden=64 (reverted from 96 by D-65). D-43/D-44's single-seed-median
+# bracket found 96 beating 64 at h=4/h=13, but D-48's seed-paired check
+# found that margin does not clear significance at any horizon (the
+# clearest noise case found in this workstream), and D-46 separately found
+# the h=13 margin over naive itself doesn't clear the seed-sd bar either.
+# 64 is not shown to be better than 96 -- reverting removes an unconfirmed
+# change rather than replacing it with a confirmed one. See D-65.
 # ---------------------------------------------------------------------------
 build:
   name: afex_operational_full_exog
   note: >
-    AFEX farmgate panel, operational hyperparameters (hidden=96 per
-    D-43/D-44's capacity bracket), with rainfall, NDVI and a D-36-derived
+    AFEX farmgate panel, operational hyperparameters (hidden=64, reverted
+    from 96 by D-65 -- see D-48), with rainfall, NDVI and a D-36-derived
     lagged neighbouring-market maize price combined as origin-time
     exogenous channels. Compared against operational (no exog) and
     agroclimatic (rainfall/NDVI only) to isolate what the upstream-lag
@@ -60,7 +61,7 @@ features:
 
 model:
   lookback: 52
-  hidden: 96                       # was 64, see D-43/D-44
+  hidden: 64                       # reverted from 96, see D-65
   market_embedding_dim: 8
   head_dropout: 0.2
   input_dropout: 0.1
