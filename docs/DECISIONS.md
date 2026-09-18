@@ -2683,3 +2683,55 @@ made once.
 
 **Cost.** About 45 minutes, most of it the `diebold_mariano.csv` gap
 found and closed along the way.
+
+---
+
+## D-64. AFEX RNN operational's first capacity bracket: hidden=64 confirmed, not just untested
+
+**Decision/finding.** `configs/afex_operational.yaml` (RNN, the direction
+pick, D-39) has run at `hidden=64` since it existed, but unlike GRU
+full-exog (D-43/44/48) it had never actually been through a width
+bracket. Two new configs added, `configs/afex_operational_hidden96.yaml`
+and `configs/afex_operational_hidden192.yaml`, identical to the existing
+config apart from `model.hidden`. Both smoke-tested before the real run.
+All three widths (64 baseline, 96, 192) run fresh into
+`outputs/afex_rnn_capacity_bracket/`, not into the existing
+`outputs/afex_operational/RNN/` path, specifically to avoid repeating
+D-63's mistake of overwriting a production output; the existing path
+currently holds a 12-seed rerun, not a clean 7-seed baseline to bracket
+against, so a fresh matched-seed baseline was run instead of reusing it.
+
+**Single-seed-median result, vs naive:**
+
+| h | hidden=64 | hidden=96 | hidden=192 |
+|---|---|---|---|
+| 4 | -4.04% (DM p=1.4e-5, sig. worse) | -9.82% (DM p<0.001, sig. worse) | -10.75% (DM p=1.4e-12, sig. worse) |
+| 13 | +3.08% (DM p=0.063) | +1.27% (DM p=0.46) | +0.68% (DM p=0.69) |
+| 26 | -1.22% (DM p=0.75) | +6.29% (DM p=0.13) | -0.80% (DM p=0.86) |
+
+All three widths lose to naive significantly at h=4, and lose by
+progressively more as width increases (-4.0 -> -9.8 -> -10.7). Nothing
+clears significance at h=13 or h=26 for any width.
+
+**Learning from D-48's own lesson, the seed-paired check was run this
+time before drawing a conclusion, not after.** Per-seed MAE (7 seeds,
+same seeds across all three configs) for hidden=64 vs the two wider
+options:
+
+| h | 64 minus 96 (t) | 64 minus 192 (t) | significant? |
+|---|---|---|---|
+| 4 | -2.51 (t=-2.00) | -2.73 (t=-2.77) | **yes, both** -- 64 is significantly better than either wider option |
+| 13 | +0.30 (t=0.15) | -2.31 (t=-1.21) | no |
+| 26 | +12.58 (t=0.85) | -6.85 (t=-1.17) | no |
+
+**Consequence.** Unlike D-48's genuinely ambiguous GRU result, this one
+is clean: hidden=64 is seed-confirmed better than both wider options at
+h=4, and statistically indistinguishable at h=13/h=26. There is no case
+for widening RNN operational, so the existing default is correct and
+this is a confirmation, not a change -- no owner decision needed. This
+also replicates D-44's qualitative finding (AFEX is data-constrained,
+added capacity does not help and can actively hurt) on a second AFEX
+build, independently of GRU full-exog.
+
+**Cost.** About 5 minutes of compute (3 full 7-seed runs, 277-week panel);
+smoke-tested first per RUNBOOK discipline.
