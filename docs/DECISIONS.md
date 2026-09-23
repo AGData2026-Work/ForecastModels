@@ -2037,3 +2037,40 @@ favourable direction, based on every other comparison checked today.
 **Cost.** About 30 minutes: the fix, a backward-compatibility check, and
 regenerating both architectures' `diebold_mariano.csv` from already-
 existing `predictions_paired.csv` files (no retraining).
+
+---
+
+## D-51. Seasonal-naive v2 re-checked with the fixed DM test: GRU now confirmed at every horizon
+
+**Decision/finding.** D-50's "not yet done" item, closed. The
+seasonal-naive-v2 benchmark (deflated seasonal index applied
+multiplicatively to the origin price, built earlier today) re-tested
+against both architectures using the corrected, panel-blocked DM test
+rather than the pre-D-50 pooled one.
+
+| h | RNN (before D-50 fix -> after) | GRU (before D-50 fix -> after) |
+|---|---|---|
+| 4 | p=.513 -> p=.353, still not significant | p=.052 -> **p=.018, now confirmed** |
+| 13 | p=.210 -> **p=.047, now confirmed** | p=.056 -> **p=.004, now confirmed** |
+| 26 | p=.250 -> p=.065, close but not significant | p=.107 -> **p=.012, now confirmed** |
+
+Every cell moved favourably, matching the pattern already seen against
+naive and panel_fe in D-50 -- confirming this wasn't a one-off, the
+DM fix systematically understated significance across every comparison
+run on this panel, not only the ones already checked.
+
+**This changes the honest answer to "how impressive is this" given
+earlier today, materially.** GRU beats a benchmark that already knows
+the harvest calendar, with confirmed significance, at all three
+horizons -- not "beats naive," a substantially higher bar. RNN clears it
+only at three months, sits just short at six months, and does not clear
+it at one month (margin there is 1.2%, likely too small to ever
+resolve). The margin-shrinkage explanation given earlier today (smaller
+true effect against a smarter benchmark) still explains why the numbers
+are smaller than the plain-naive comparison; it does not mean the result
+is now weak -- GRU's edge over a genuinely well-informed baseline is
+real and proven, not merely plausible.
+
+**Cost.** No new compute; re-scored existing predictions against the
+already-built seasonal-naive-v2 series with the already-fixed test
+function.
