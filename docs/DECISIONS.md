@@ -2232,3 +2232,62 @@ not harder ones.
 
 **Cost.** About 45 minutes for all three, reusing the existing
 predictions_paired.csv files and the D-50-fixed test throughout.
+
+---
+
+## D-54. Stale historical aggregate CSVs regenerated (the gap D-49 left open)
+
+**Finding.** D-49 flagged `outputs/fewsnet_final_scoring_candidates.csv` and
+`outputs/capacity_bracket_comparison.csv` as not yet updated after the
+lookback=26 adoption. Both still carried the lookback=52 build3 numbers.
+Neither file has a committed generator script; both were built by hand
+from `report.py`'s `headline()` table over a run directory, so
+refreshing them means re-running that same computation against the
+current `outputs/build3_underfit_corrected/{RNN,GRU}_unconditional/`
+(the live lookback=26 runs D-49 already produced), not new training.
+
+**`fewsnet_final_scoring_candidates.csv`.** The two `build3
+(safeguard-removed)` rows (RNN, GRU) are replaced with the current
+lookback=26 numbers and relabeled `build3 (safeguard-removed,
+lookback=26)` so a future reader does not have to guess which lookback
+produced them. The four `build2 (operational)` rows are untouched; they
+do not depend on `build3.yaml`.
+
+| | RNN h=4 | RNN h=13 | RNN h=26 | GRU h=4 | GRU h=13 | GRU h=26 |
+|---|---|---|---|---|---|---|
+| MAE, was (lookback=52) | 16.912 | 31.711 | 49.068 | 16.471 | 30.876 | 48.738 |
+| MAE, now (lookback=26) | 16.720 | 31.764 | 48.923 | 16.333 | 30.452 | 46.752 |
+| vs_naive_pct, was | 5.900 | 17.215 | 13.663 | 8.357 | 19.393 | 14.242 |
+| vs_naive_pct, now | 6.968 | 17.075 | 13.917 | 9.121 | 20.501 | 17.737 |
+
+**`capacity_bracket_comparison.csv` -- not a clean refresh.** This table's
+purpose is comparing capacity variants (hidden=96/128/192, 2-layer)
+against each other. Only the hidden=128 baseline row is current
+build3; the hidden=96/192 and 2-layer bracket runs were never rerun at
+lookback=26 (`configs/build3_hidden96.yaml`, `build3_hidden192.yaml`,
+`build3_2layer.yaml` all still read `lookback: 52`, confirmed by
+grep). Overwriting only the baseline row would silently turn this into
+a lookback=26-vs-lookback=52 comparison table without saying so, which
+is the same class of measuring-stick error this project's rules exist
+to catch. Instead: the baseline rows are updated and relabeled
+`(lookback=26, baseline)`; every other row is relabeled `(lookback=52,
+not re-run at 26)`. The capacity conclusion itself is unaffected --
+D-64/D-65-equivalent brackets on this side of the project already found
+hidden=128 to be the pick, and nothing here suggests revisiting that at
+lookback=26, but the table is now honest about what was and was not
+re-run rather than implying a comparison that does not exist.
+
+**Not done.** The `hidden=96/192`/2-layer bracket was not rerun at
+lookback=26. If someone wants a real capacity-vs-lookback=26 comparison,
+that is new compute (4 full 7-seed runs at lookback=26), not a file
+edit, and has not been requested.
+
+**Also flagged, not actioned.** `20260922_NADIH_Maize-RNN-GRU_
+Status-and-Open-Decisions_v2.docx`, delivered the day before D-49, cites
+build3 numbers from before the lookback change and has not been found on
+this machine to check directly. It should be treated as stale until
+re-issued; regenerating a delivered document was not requested here so
+it was not touched.
+
+**Cost.** No new training; recomputed from existing predictions_paired.csv
+files. About 10 minutes.
