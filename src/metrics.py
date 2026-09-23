@@ -65,25 +65,63 @@ def paired_table(df: pd.DataFrame, challenger: str,
     return pd.DataFrame(rows).sort_values("h").reset_index(drop=True)
 
 
-def diebold_mariano(a, p1, p2, h: int) -> dict:
-    """Newey-West DM test on absolute-error differentials. Negative stat favours p1."""
-    a, p1, p2 = (np.asarray(x, float) for x in (a, p1, p2))
-    d = np.abs(a - p1) - np.abs(a - p2)
+def _dm_series_stats(d: np.ndarray, lag: int) -> tuple[float, float, int]:
+    """Newey-West mean/variance of one chronologically-ordered loss-differential
+    series. `d` must already be sorted in time order by the caller -- the lag
+    terms assume consecutive entries are consecutive origins of the same series,
+    which is the entire premise of the overlap correction below."""
     n = len(d)
-    if n < 10:
-        return {"dm_stat": float("nan"), "dm_p": float("nan"), "n": n}
     dbar = d.mean()
-    lag = max(0, h - 1)
     g0 = np.mean((d - dbar) ** 2)
     var = g0
-    for L in range(1, lag + 1):
+    for L in range(1, min(lag, n - 1) + 1):
         g = np.mean((d[L:] - dbar) * (d[:-L] - dbar))
         var += 2 * (1 - L / (lag + 1)) * g
-    var = max(var, 1e-12)
-    stat = dbar / np.sqrt(var / n)
+    return dbar, max(var, 1e-12), n
+
+
+def diebold_mariano(a, p1, p2, h: int, groups=None) -> dict:
+    """Newey-West DM test on absolute-error differentials. Negative stat favours p1.
+
+    The overlap correction (h-step forecasts from nearby origins share target
+    weeks, hence correlated errors) is only valid within one chronologically
+    ordered series. Pooling several markets into one table and running the
+    correction across the concatenated rows mixes unrelated series at every
+    market boundary, understating (or otherwise distorting) significance --
+    found directly on this project's own FEWSNET panel, see docs/DECISIONS.md.
+
+    Pass `groups` (e.g. one market label per row, in the same order as a/p1/p2)
+    to compute the correction separately within each group's own time order and
+    combine them assuming independence across groups, instead of one pooled,
+    boundary-contaminated series. `a`/`p1`/`p2` must already be sorted by
+    (group, time) when `groups` is given -- this function trusts that order
+    within each group, it does not re-sort by any date column it isn't given.
+    When `groups` is omitted, behaviour is unchanged from before (single
+    series, whatever order the caller provides)."""
+    a, p1, p2 = (np.asarray(x, float) for x in (a, p1, p2))
+    d_all = np.abs(a - p1) - np.abs(a - p2)
+    n_total = len(d_all)
+    if n_total < 10:
+        return {"dm_stat": float("nan"), "dm_p": float("nan"), "n": n_total}
+    lag = max(0, h - 1)
+
+    if groups is None:
+        dbar, var, n = _dm_series_stats(d_all, lag)
+        stat = dbar / np.sqrt(var / n)
+    else:
+        groups = np.asarray(groups)
+        dbar_all = d_all.mean()
+        var_of_mean_numerator = 0.0
+        for g_val in np.unique(groups):
+            d_g = d_all[groups == g_val]
+            _, var_g, n_g = _dm_series_stats(d_g, lag)
+            var_of_mean_numerator += n_g * var_g
+        var_of_overall_mean = var_of_mean_numerator / (n_total ** 2)
+        stat = dbar_all / np.sqrt(var_of_overall_mean)
+
     from math import erf, sqrt
     p = 2 * (1 - 0.5 * (1 + erf(abs(stat) / sqrt(2))))
-    return {"dm_stat": float(stat), "dm_p": float(p), "n": n}
+    return {"dm_stat": float(stat), "dm_p": float(p), "n": n_total}
 
 
 def change_control(paired: pd.DataFrame, gate_horizons=(4, 13), threshold=5.0) -> dict:

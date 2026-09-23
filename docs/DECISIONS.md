@@ -1968,3 +1968,72 @@ live output directories will see stale figures until they are refreshed.
 **Cost.** No new compute for the decision itself; the bracket runs
 (4 full 7-seed runs) were already complete from an earlier pass. File
 swap and config edit only.
+
+---
+
+## D-50. Diebold-Mariano bug fixed: the overlap correction was blending unrelated markets together
+
+**Decision/finding.** `diebold_mariano()`'s Newey-West overlap correction
+assumes one chronologically-ordered series -- it exists specifically
+because h-step forecasts from nearby origins share target weeks and are
+therefore correlated. `run.py` built its paired table via
+`groupby(["origin", "market", "h"])`, and because `origin` sorts first,
+consecutive rows interleaved all 15 markets at each date before moving
+to the next date. Every lag term the correction computed was therefore
+comparing different markets on nearby dates, not the same market's own
+forecasts over time -- not the correlation the test is designed to
+capture, discovered while building a worked example for an unrelated
+explanation.
+
+**Fix.** `diebold_mariano()` gains an optional `groups` parameter
+(`src/metrics.py`). When given, the HAC correction is computed
+separately within each group's own chronological order (one market's
+own time series, uncontaminated by any other market) and the results
+combined assuming independence across groups, rather than one pooled,
+boundary-crossing series. Omitting `groups` leaves existing behaviour
+byte-identical, confirmed directly (a synthetic single-series check
+before and after the change gave the same stat and p to full precision).
+`run.py` now sorts each horizon's table by `(market, origin)` before the
+DM call and passes `market` as `groups`.
+
+**Every DM p-value for the current build3 (lookback=26, D-49) moved in
+the same direction: more significant, sometimes decisively.**
+
+| h | RNN (before -> after) | GRU (before -> after) |
+|---|---|---|
+| 4 | p=.0029 -> p=.00006 | p=.0002 -> p=.000004 |
+| 13 | p=.0012 -> p=.000006 | p=.0004 -> p=.000002 |
+| 26 | **p=.154 -> p=.0066** | **p=.079 -> p=.0010** |
+
+**Both six-month margins are now confirmed.** This is the headline
+change: every document produced this session, including the status
+refresh sent for review, describes six months as "a real margin, not
+yet statistically confirmed." That description is now out of date. All
+three horizons -- one, three and six months -- clear significance for
+both architectures under the corrected test. `quality_gate.py` reads
+`diebold_mariano.csv` directly rather than recomputing DM itself, so it
+picks up the fix automatically on next read; it was not re-run
+separately since its own horizons (4, 13) were already confirmed either
+way.
+
+**What this does not change.** The gate horizons (4, 13) were already
+confirmed before this fix and remain so -- nothing here rescues a weak
+result, it corrects an artificially conservative one. The per-market
+six-month check (only 1 of 15 markets for RNN, 3 of 15 for GRU beat
+naive individually, reported in the status refresh) is unaffected by
+this fix and still stands: a confirmed *pooled* margin is compatible
+with most individual markets not sharing in it, for the same reason a
+blended average can look better than the parts underneath it, discussed
+at length earlier this session regarding other people's published
+figures. Six months being pooled-significant is not the same claim as
+six months working market by market.
+
+**Not yet done.** The seasonal-naive-v2 comparison run earlier today
+(RNN not significant anywhere, GRU borderline at 1 and 3 months) used
+the old, unfixed function. Re-running it with the corrected version is
+the natural next step and was flagged as likely to move in the same
+favourable direction, based on every other comparison checked today.
+
+**Cost.** About 30 minutes: the fix, a backward-compatibility check, and
+regenerating both architectures' `diebold_mariano.csv` from already-
+existing `predictions_paired.csv` files (no retraining).

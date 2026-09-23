@@ -286,9 +286,12 @@ def main() -> None:
 
     dm = []
     for h in H:
-        s = g[g.h == h]
+        # sorted by (market, origin) so each market's rows stay in chronological
+        # order together -- the DM overlap correction below is only valid within
+        # one time-ordered series, not across the panel's 15 pooled markets.
+        s = g[g.h == h].sort_values(["market", "origin"])
         for ref in ("panel_fe", "naive"):
-            d = diebold_mariano(s["actual"], s[a.kind], s[ref], h)
+            d = diebold_mariano(s["actual"], s[a.kind], s[ref], h, groups=s["market"].values)
             d.update(h=h, vs=ref)
             dm.append(d)
     pd.DataFrame(dm).to_csv(out / "diebold_mariano.csv", index=False)
