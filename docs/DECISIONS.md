@@ -2074,3 +2074,161 @@ real and proven, not merely plausible.
 **Cost.** No new compute; re-scored existing predictions against the
 already-built seasonal-naive-v2 series with the already-fixed test
 function.
+
+---
+
+## D-52. A proper second benchmark: seasonal naive, built from a deflated seasonal index, with an honest by-period breakdown
+
+**Decision/finding.** The Medel review (case 7 of the external-source
+comparison work) recommends at least two benchmarks, not one; this
+project has only ever reported against plain carry-forward naive. Built
+and tested a seasonal-naive benchmark instead of leaving this a stated
+gap.
+
+**First attempt, ruled out and logged rather than quietly discarded.**
+A naive using the actual price from 52 weeks before the target date
+("same time last year") was built first. It is dramatically worse than
+plain carry-forward at every horizon (MAPE 31.9%/32.5%/33.1% against
+carry-forward's 9.6%/18.6%/23.6%). Cause, confirmed rather than assumed:
+Nigerian maize carries a real but small harvest-cycle swing (roughly
+±15 percentage points around the yearly average, see the seasonal index
+below) alongside a much larger year-over-year inflation/currency-
+devaluation trend over this period. Reaching back a full year in raw
+naira imports a year of inflation as noise; the modest seasonal signal
+is swamped by it. Margins against this version looked spectacular
+(40-73%, p near zero) and were **not adopted or reported as a result** --
+reporting a huge margin over a benchmark this easy to beat would be the
+exact mistake this project's own review of external sources (South
+Africa's missing baseline, Vesper's unbenchmarked claims) has spent
+effort calling out in other people's work.
+
+**Second attempt: the seasonal index, deflated, applied multiplicatively
+to a recent price instead of reaching back a year in raw terms.** Food
+CPI built by compounding `data/external/inflation.xlsx`'s monthly food
+inflation (MoM) into an index; nominal price deflated by it; index
+computed as `100 * geometric_mean_across_years(deflated_month_avg /
+deflated_year_avg)` per calendar month, using only complete (12-month)
+years, per the same construction the owner supplied for a different
+dataset's methodology doc. Pooled across the 15 scored markets (each
+market normalised to its own mean before pooling), 11 complete years
+(2013-2023):
+
+| Month | Jan | Feb | Mar | Apr | May | Jun | Jul | Aug | Sep | Oct | Nov | Dec |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| Index | 94.3 | 95.0 | 95.6 | 99.5 | 99.9 | 105.9 | 110.2 | **112.7** | 107.5 | 95.1 | 93.0 | **91.5** |
+
+Low right after harvest (Nov-Dec), high in the pre-harvest lean season
+(Aug) -- a real, sensible agricultural pattern, and narrower than the
+same index built without deflating first (88.5-116.6 nominal vs
+91.5-112.7 deflated), confirming some of the apparent nominal
+"seasonality" was actually inflation timing, not the harvest cycle.
+
+The naive itself: `forecast = origin_price * (SI[target_month] /
+SI[origin_month])`. This is a genuinely harder benchmark than plain
+carry-forward, not an easier one: 9.6%->9.2%, 18.6%->16.5%,
+23.6%->22.5% MAPE.
+
+**Pooled result against both architectures, corrected DM test (D-50):**
+
+| h | RNN margin | RNN p | GRU margin | GRU p |
+|---|---|---|---|---|
+| 4 | +1.2% | .353 | +3.5% | **.018** |
+| 13 | +5.2% | **.047** | +9.1% | **.004** |
+| 26 | +8.9% | .065 | +13.0% | **.012** |
+
+**GRU clears this harder bar at all three horizons. RNN clears it only
+at three months**, sits just short at six (p=.065), and does not clear
+one month (margin there is 1.2%, likely too small to ever resolve).
+
+**Per-market breakdown (all 15 markets, each with its own local
+deflated seasonal index rather than the pooled one above -- built the
+same way, 11 complete years each, no market needed a fallback).** Beats
+the per-market seasonal naive in 8/15 (both architectures) at one month,
+10/15 (RNN) and 12/15 (GRU) at three months, and **15/15 for both** at
+six months -- a materially more consistent picture than the 1/15 (RNN)
+and 3/15 (GRU) markets that individually beat plain carry-forward naive
+at six months. Individual-market significance is rare given the small
+per-market sample (~100-111 pairs vs ~1,500+ pooled, expected loss of
+power, not a red flag): three markets clear p<.05 alone, split both
+directions -- GRU wins at Maiduguri (1mo), GRU loses at Gwandu Dodoru
+(1mo), RNN loses at Kaura Namoda (1mo).
+
+**The finding that matters most for how this gets described externally:
+the pooled win is not a general, all-conditions win.** Broken down by
+the same three periods used throughout this project (2015-2019,
+2020-2022, 2023-2024), pooled across all markets:
+
+| Period | RNN h=4/13/26 margin | GRU h=4/13/26 margin |
+|---|---|---|
+| 2015-2019 | **-9.0% / -33.5% / -53.4%, all SIG LOSSES** | **-10.5% / -33.1% / -48.0%, all SIG LOSSES** |
+| 2020-2022 | -1.0% / +3.4% / -0.6%, none significant | -1.1% / **+6.2% (SIG)** / +5.6% |
+| 2023-2024 | **+3.7% / +18.8% / +33.4%, all SIG WINS** | **+10.0% / +26.8% / +37.0%, all SIG WINS** |
+
+Both architectures lose significantly to the seasonal-adjusted naive at
+every horizon in the calm 2015-2019 period, sometimes badly. The pooled,
+all-period confirmed win exists because the 2023-2024 shock wins are
+large enough to outweigh the calm-period losses when averaged together,
+not because the models are generally better than a calendar-aware guess.
+Verified this holds against plain carry-forward naive too, specifically
+in 2023-2024: both models beat both naive versions at all three
+horizons there, all confirmed significant (RNN +5.6% to +37.8%, GRU
++10.0% to +40.7%, depending on horizon and which naive).
+
+**Consequence.** This is the credible second benchmark this project's
+own external-source review said was missing. It should travel with the
+plain-naive margin everywhere this project's results are described
+externally, along with the by-period caveat -- reporting the pooled win
+alone would be the same kind of incomplete picture this project has
+criticised elsewhere.
+
+**Cost.** About two hours across both seasonal index builds, the ruled-
+out year-ago version, the per-market index, and the full period/market
+breakdowns.
+
+---
+
+## D-53. Three more naive variants tried; all easier to beat than plain carry-forward, both architectures sweep all of them
+
+**Decision/finding.** Rounding out the naive-benchmark comparison
+started in D-52. Three more classical variants built and tested against
+both architectures, pooled, corrected DM test (D-50). None turned out
+harder than plain carry-forward -- unlike D-52's seasonal naive, these
+three are confirmatory, not additional proof of anything stronger.
+
+**Drift naive** (`origin_price * exp(drift * h)`, drift = mean weekly
+log-difference over all history strictly before origin, expanding
+window -- the exact convention already validated for diesel forecasting
+in `src/data.py`'s `_diesel_drift`, applied here to the maize price
+series itself instead of diesel). Weaker than carry-forward (MAPE
+9.6->9.7%, 18.6->19.4%, 23.6->25.2%): a 12-year expanding drift averages
+across too many different price regimes to track current momentum. Both
+architectures clear it at all three horizons (RNN +6.8%/+17.0%/+10.6%,
+GRU +9.0%/+20.4%/+14.6%, p<=.0022 throughout).
+
+**Moving-average naive** (trailing 4-week mean price at origin). Also
+weaker than carry-forward (9.6->11.0%, 18.6->19.0%, 23.6->23.8%): for a
+series this close to a random walk, averaging in slightly older prices
+adds lag without adding signal. Both architectures clear it at all three
+horizons (RNN +20.3%/+19.1%/+15.7%, GRU +22.1%/+22.4%/+19.4%,
+p<=.0040 throughout).
+
+**AGRICAF-style naive** ("future price change = mean of past observed
+changes" per that paper's own stated definition -- arithmetic level
+differences, not the log/geometric drift above; `origin_price + h *
+mean_arithmetic_weekly_change`, same expanding-window convention).
+Weaker than carry-forward (9.6->9.7%, 18.6->19.0%, 23.6->24.2%), close to
+but slightly less aggressive than the log-drift version. Both
+architectures clear it at all three horizons (RNN
++6.9%/+16.7%/+11.8%, GRU +9.0%/+20.1%/+15.8%, p<=.0072 throughout).
+
+**Consequence.** Of five benchmarks now tested (plain carry-forward,
+seasonal, drift, moving-average, AGRICAF-style), only the seasonal one
+(D-52) is genuinely harder to beat than the one already in this
+project's headline number, and it is the one place RNN's advantage
+mostly does not hold up while GRU's does. The other three sweep cleanly
+for both architectures but should not be cited as strengthening the
+case beyond what D-52 already establishes, since they are easier bars,
+not harder ones.
+
+**Cost.** About 45 minutes for all three, reusing the existing
+predictions_paired.csv files and the D-50-fixed test throughout.
