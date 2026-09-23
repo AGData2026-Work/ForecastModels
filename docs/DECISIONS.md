@@ -2862,3 +2862,70 @@ change what gets checked, not what training produces.
 
 **Cost.** About 15 minutes of compute across five full 7-seed runs
 (four-config bracket plus the fresh baseline), smoke-tested first.
+
+---
+
+## D-67. Bridging the gap with FEWSNET: the D-50 DM fix ported here too -- every AFEX significance claim used the same buggy test
+
+**Decision/finding.** FEWSNET's own D-50 found its DM test's overlap
+correction was blending unrelated markets together because
+`groupby(["origin", "market", "h"])` sorts by date first, interleaving
+every market at each date rather than keeping each market's own
+chronological series intact. Checked this branch's `run_afex.py`: same
+`groupby(["origin", "market", "h"])` call, same bug, confirmed directly
+rather than assumed. **This means every DM p-value computed on this
+branch since the project began -- D-46, D-49, D-51, D-56, D-57, D-64
+through D-66's naive comparisons -- used the same understated-or-
+distorted significance test FEWSNET just fixed.**
+
+**Fix.** `diebold_mariano()` in this branch's `src/metrics.py` gains the
+identical `groups` parameter D-50 added on main: computes the HAC
+correction within each group's own chronological order and combines
+across groups assuming independence, rather than one pooled, boundary-
+crossing series. `run_afex.py` now sorts each horizon's table by
+`(market, origin)` before the DM call and passes `market` as `groups`.
+Backward-compatible (`groups=None` unchanged). Full test suite: 40
+passed, 2 skipped (`num_layers`, not on this branch, expected) --
+confirmed clean before trusting the change.
+
+**Regenerated `diebold_mariano.csv` for both current finalists, vs
+naive, old and new side by side:**
+
+| Config | h | Old (buggy) dm_p | New (fixed) dm_p |
+|---|---|---|---|
+| RNN operational (12-seed, D-63) | 4 | not computed before today | 1.10e-11 |
+| | 13 | not computed before today | 0.500 |
+| | 26 | not computed before today | 0.717 |
+| GRU full-exog (post-D-66, lookback=26) | 4 | 9.86e-07 | 3.65e-07 |
+| | 13 | 0.0247 | **0.0079** |
+| | 26 | 0.590 | 0.302 |
+
+**Same pattern as D-50: the fix does not flip any result, it makes
+whatever was already true more certain.** GRU full-exog's h=4 loss to
+naive (positive dm_stat, naive wins) was already significant and stays
+significant, more so. Its h=13 win moves from a borderline p=.025 to a
+comfortably confirmed p=.008. Neither h=26 result changes qualitatively.
+RNN operational never had a `diebold_mariano.csv` at all before today --
+generated fresh, on the 12-seed file currently sitting at `outputs/
+afex_operational/RNN/`, the same file D-63 flagged as not replicating
+its own directional finding. This is not a clean 7-seed reference run;
+whoever next revisits RNN operational's numbers should know that
+caveat travels with this DM result too.
+
+**What this does not do.** It does not change either finalist's
+adopted configuration -- D-64/D-65/D-66 stand as decided. It corrects
+the confidence level attached to results already reported, in the same
+direction D-50 did.
+
+**Consequence, and what's still outstanding in bridging the two
+workstreams.** This was the highest-priority gap: a correctness bug,
+not a missing feature. Still not ported from today's FEWSNET session:
+the seasonal-naive benchmark (D-52), the drift/moving-average/AGRICAF-
+style naive variants (D-53), and the regime-aware blend (D-54) -- all
+four are exploratory/methodology additions rather than bug fixes, and
+are flagged as the next items to bring across, not attempted in this
+entry.
+
+**Cost.** About 20 minutes: the port, the test-suite check, and
+regenerating two files' worth of DM output from already-existing
+predictions.
