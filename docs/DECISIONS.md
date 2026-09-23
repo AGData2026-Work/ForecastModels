@@ -2929,3 +2929,185 @@ entry.
 **Cost.** About 20 minutes: the port, the test-suite check, and
 regenerating two files' worth of DM output from already-existing
 predictions.
+
+---
+
+## D-68. New WhatsApp extract merged into the panel; both finalists rerun on the extended grid
+
+**Source.** `20260914_AFEXWhatsApp_PriceExtract_ChatMd_v1.xlsx`, 7 crop
+sheets (Maize, Sorghum, Soyabean, Paddy Rice, Cowpea, Millet, Sesame
+Seed) covering weeks 2026-07-29 through 2026-09-16; 569 raw rows.
+Cocoa/Ginger/Wheat/Fertilizer_Inputs sheets excluded, not in this
+panel's 7 commodities. Full detail lives in the new `Update_20260916`
+sheet of `data/external/afex_multicommodity_panel.xlsx`; this entry
+summarizes it rather than repeating it in full. Original file backed up
+to `afex_multicommodity_panel_pre_20260916_update.xlsx.bak` before
+writing (D-16 precedent: superseded originals kept, not deleted).
+
+**Extraction, matched to this panel's own established rules, not
+reinvented.** Free-text market names substring-matched against the 18
+canonical markets: 453 of 569 matched, 116 excluded (unmatched
+candidate markets -- Bakori, Jabiri, Katcha, Gwada/Kuta, Sara -- plus
+forwarded-message junk, bare dates, phone numbers). One maize row
+tagged `NEW` in Variety removed, matching the maize-only new-crop rule.
+Per-bag rows divided by stated weight; per-MT rows (Dawanau only,
+confirmed no other market reports per-MT) divided by 1000; 21 rows
+dropped for unresolved weight rather than guessed, including one
+literal `'000'` bag-weight typo.
+
+**Two source-data errors found and excluded, not corrected.** 2 Sesame
+(Dawanau) rows read `Price₦1,4000,000/MT` -- an extra digit, likely
+1,400,000, but not silently fixed. 10 Soybean (Dawanau, per-MT) rows use
+a period as a thousands separator (`745.000` parsed as decimal 745.0);
+the /1000 per-MT conversion would coincidentally cancel most of that
+error if guessed wrong, which is exactly why it wasn't guessed. Both
+flagged in `Update_20260916` for a human cross-check with the AFEX
+correspondent, per this project's "log rather than smooth" rule.
+
+**Validated before trusting it.** 73 (week, market, commodity) points
+already in the panel (1-22 July 2026) were reproduced independently
+from the new extract as a cross-check, not used to overwrite existing
+values. Mean absolute deviation 0.6%, median 0.0% -- confirms the
+extraction pipeline is consistent with how the panel was originally
+built, before any of it was merged in.
+
+**Null-handling, corrected to match the existing convention exactly**
+(caught on review -- see the "null-labeling inconsistency" note below).
+408 new rows appended (183 observed + 225 null placeholders = 51 series
+x 8 new weeks). Of the 225 nulls, every one was checked for a genuine
+interior gap (real data both before and after): 4 qualified (Anchau
+Maize/Sorghum/Soybean at a 3-week gap, Giwa Maize at a 2-week gap) and
+were linearly interpolated with `is_proxy_price=True`, same as any
+other interpolated value in this panel; 11 did not qualify (Bali
+Maize/Soybean, a 46-week gap) and are labeled "gap over 13 weeks, left
+null"; the remainder are labeled "after this series ends." The first
+pass at this had used a flat "no_value" label for all 225 cells with no
+interpolation -- inconsistent with `Build_Decisions`' own rule -- caught
+on review and redone properly.
+
+**Rerun both finalists on the extended grid (285w x 50 series, 2021-04-07
+to 2026-09-16).** Full logs at `logs/afex_panel_update_rerun.log`.
+
+| | RNN h=4 | RNN h=13 | RNN h=26 | GRU h=4 | GRU h=13 | GRU h=26 |
+|---|---|---|---|---|---|---|
+| n, before | 895 | 895 | 895 | 895 | 895 | 895 |
+| n, after | 908 | 908 | 908 | 908 | 908 | 908 |
+| MAE, before | 61.57 | 134.14 | 176.52 | 61.36 | 130.36 | 170.76 |
+| MAE, after | 59.40 | 129.62 | 177.96 | 60.86 | 128.88 | 168.96 |
+
+Both finalists improve at h=4 and h=13 with the extra 13 origins; RNN's
+h=26 MAE moves slightly worse (176.52 to 177.96), GRU's slightly better.
+No horizon moves by more than about 2 MAE points either way -- consistent
+with adding 13 origins to an 895-origin grid, not a sign of anything
+structurally different in the new data. No significance testing done on
+this delta specifically; it is a coverage change, not a config change,
+so a paired test isn't the right tool here.
+
+**Not done.** 7 new (market, commodity) combinations appeared with no
+prior history (Saminaka|Cowpea, Giwa|Soybean, Dawanau|Paddy_Rice,
+Jengre|Sorghum, Danja|Sorghum, Bali|Sesame, Bali|Sorghum) -- not added,
+nowhere near the 112-week entry bar regardless of this update.
+
+**Cost.** About 2 hours: extraction pipeline built from scratch (no
+prior script for this), the null-handling rework after the first pass
+was caught as wrong, and the two finalist reruns (13 minutes each per
+`afex_panel_update_rerun.log`'s timestamps).
+
+---
+
+## D-69. AFEX's own naive benchmarks: seasonal naive is the strongest, and both finalists lose to it at the two shorter horizons
+
+**Decision/finding.** Ported D-52/D-53's method from FEWSNET (deflated
+seasonal index, drift, moving-average) to AFEX's maize series, using the
+same `data/external/inflation.xlsx` food-CPI series both workstreams
+already share, on the post-D-68 extended grid (n=908 throughout, both
+finalists). DM significance uses the D-67-fixed test throughout.
+
+| h | RNN | GRU | naive | seasonal | drift | MA |
+|---|---|---|---|---|---|---|
+| 4 (MAE / MAPE) | 59.40 / 12.94% | 60.86 / 13.38% | 57.16 / 12.21% | **55.34 / 11.73%** | 58.90 / 12.56% | 68.69 / 14.78% |
+| 13 (MAE / MAPE) | 129.62 / 24.98% | 128.88 / 24.54% | 133.86 / 25.89% | **114.49 / 22.17%** | 143.96 / 28.71% | 139.45 / 26.66% |
+| 26 (MAE / MAPE) | 177.96 / 34.24% | 168.96 / 32.83% | 175.93 / 33.04% | 173.98 / 33.41% | 196.34 / 39.55% | 182.85 / 34.58% |
+
+Seasonal naive has the lowest MAE at h=4 and h=13 of every method in the
+table, model or naive -- the same pattern D-52 found for FEWSNET, and a
+harder bar than plain carry-forward. Drift and moving-average are both
+easier to beat than plain naive at every horizon; not pursued further
+past this check, matching D-53's conclusion on the other branch.
+
+**Significance, model vs. seasonal naive (DM test, D-67-fixed,
+`groups=market`):**
+
+| h | RNN dm_p | GRU dm_p | which wins |
+|---|---|---|---|
+| 4 | 0.0311 | 0.0039 | seasonal, significant, both |
+| 13 | 0.0020 | 0.0045 | seasonal, significant, both |
+| 26 | 0.484 | 0.462 | no significant difference |
+
+**This is a more concerning finding for AFEX than the equivalent FEWSNET
+result.** FEWSNET's GRU beats its seasonal naive at every horizon (D-51);
+AFEX's finalists lose to seasonal naive significantly at the two
+shorter, gate-relevant horizons and only draw even at h=26. One word,
+asked and answered earlier in this session: seasonal naive is the
+strongest of the four naive methods for AFEX too, same as FEWSNET.
+
+**Cost.** About 40 minutes, reusing D-68's already-rerun
+predictions_paired.csv files.
+
+---
+
+## D-70. AFEX regime-aware blend explored ad hoc, not yet formalized -- does not beat seasonal naive alone at the two shorter horizons
+
+**Decision/finding.** Ported D-54's method (trailing 13-week volatility
+vs. each series' own expanding-median volatility, `z = log(trailing /
+expanding_median)`, `weight = sigmoid(z / scale)`, blend = `weight *
+model + (1 - weight) * seasonal_naive`) to AFEX's maize series only,
+scale fit on this panel (std of z = 0.710). Built and checked in
+`/tmp` scratch scripts, not yet ported into a committed script the way
+`src/regime_blend.py` was on `main` for D-54 -- flagged here rather than
+left silent, since this branch has no equivalent file yet.
+
+**Pooled result.** The blend is a real, significant improvement over
+the pure model at h=4 and h=13 for both architectures (p<0.004
+throughout, DM test vs. pure model) -- but seasonal naive alone still
+beats the blend at those same two horizons (p=0.0025-0.0094, seasonal
+wins). Unlike FEWSNET, where the blend was evaluated against a naive
+default the model could sometimes beat outright, AFEX's blend is
+chasing a naive benchmark (D-69) that both finalists already lose to
+before any blending.
+
+**By-year breakdown (RNN, h=13; GRU tracks the same shape).** AFEX's
+scored history only runs 2023-2026, so this is by calendar year, not
+FEWSNET's multi-year calm/shock buckets:
+
+| Year (n) | Pure model | Seasonal | Plain naive | Blend |
+|---|---|---|---|---|
+| 2023 (370) | 30.22% | 23.34% | 31.29% | 27.19% |
+| 2024 (377) | 22.57% | 22.45% | 23.73% | 22.51% |
+| 2025 (144) | 20.06% | 19.66% | 19.62% | 19.63% |
+| 2026 (17) | 6.22% | 11.84% | 9.61% | 9.96% |
+
+The blend's benefit is concentrated almost entirely in 2023, the
+earliest scored year and the one where the pure model is weakest against
+every other method. 2024-2025 are close to a wash across all four
+methods. 2026's row is 17 origins from the newly-merged September data
+(D-68) and should not be read as a trend either way; flagged, not
+relied on.
+
+**This is a different shape than FEWSNET's finding, not the same story
+transplanted.** D-52/D-54 found FEWSNET's edge concentrated in
+volatility *regimes* that recur across years (2020/2023/2024). AFEX's
+pattern instead looks tied to a specific early year, plausibly reflecting
+less training history behind the model at that point rather than a
+recurring shock/calm distinction. Presenting this as a general-purpose
+fix the way the FEWSNET blend was framed would overstate what's actually
+been shown here.
+
+**Not done.** Not committed to a script, not logged with model-persisted
+weights, not pushed. If this direction is worth keeping, it needs the
+same treatment `src/regime_blend.py` got on `main`: a real script,
+argparsed, with the same no-lookahead check `regime_blend.py`'s
+`compute_regime_z()` already passed on the FEWSNET side.
+
+**Cost.** About 1.5 hours across the by-year and pooled checks, reusing
+D-68/D-69's predictions_paired.csv files and the D-67-fixed DM test.
