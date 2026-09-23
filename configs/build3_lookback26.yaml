@@ -1,0 +1,58 @@
+# ---------------------------------------------------------------------------
+# BUILD 3, lookback=26 -- bracketing the current 52-week lookback, never
+# swept before (see docs/DECISIONS.md, ML-Test-Score gap-closing pass).
+# Halves the window the same way D-13's width bracket started at half the
+# then-current hidden size. explicit_lag52 still injects the 52-week-back
+# anchor directly as a feature even though it now sits outside the sliding
+# window itself, so the annual-cycle signal is not lost, only no longer
+# implicitly present via the raw sequence. Nothing else differs from
+# build3.yaml.
+# ---------------------------------------------------------------------------
+build:
+  name: build3_lookback26
+  note: >
+    Build 3 with lookback=26 instead of 52, bracketing the current default
+    the same way D-29/D-30 bracketed hidden size. explicit_lag52 keeps the
+    52-week anchor as an injected feature regardless of window length.
+
+data:
+  panel: data/panel_weekly.parquet
+  baseline_forecasts: data/07_panel_fe_forecasts.parquet
+  train_markets: all_in_panel
+  drop_target_dates: ["2019-04-24"]
+  price_interp_limit_weeks: 13
+
+protocol:
+  horizons: [4, 13, 26]
+  gate_horizons: [4, 13]
+  gate_threshold_pct: 5.0
+
+features:
+  climate_scheme: inverse_distance
+  fourier_k: 2
+  explicit_lag52: true
+
+model:
+  lookback: 26                     # was 52
+  hidden: 128
+  market_embedding_dim: 8
+  head_dropout: 0.0
+  input_dropout: 0.0
+
+training:
+  seeds: [0, 1, 2, 3, 4, 5, 6]
+  epochs: 200
+  batch_size: 256
+  lr: 0.003
+  patience: 25
+  grad_clip: 1.0
+  weight_decay: 0.0
+  lr_schedule: cosine
+  huber_delta: 1.0
+  val_fraction: 0.15
+  purge_weeks: 26
+  recency_half_life_weeks: null
+  scale_targets: true
+  retrain_every_weeks: 13
+  min_train_windows: 200
+  seed_aggregation: median

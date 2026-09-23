@@ -1909,4 +1909,62 @@ available week.
 above. Closes the workplan's Phase 3 to the extent it can be closed
 without a live serving environment to deploy into, which does not exist
 and was never in scope for today.
-entry once built and verified.
+
+---
+
+## D-49. Lookback window bracket; owner adopts 26 weeks for both architectures
+
+**Decision/finding.** Lookback (52 weeks since inception, never swept)
+bracketed at 26 and 104 weeks on `build3.yaml`, both architectures.
+Smoke-tested first per RUNBOOK discipline. lookback=104 rejected as an
+invalid comparison: its grid shrinks from n=1590 to n=1543 (a smaller,
+later-starting slice of the panel, not the same pairs under a different
+model) -- the same class of error D-01 named, applied here to window
+length instead of grid regeneration. Point estimates at lookback=104
+were also worse for both architectures at every horizon regardless; not
+pursued further.
+
+**lookback=26 vs. 52 is a valid, grid-matched comparison (n=1590 both
+sides) and was seed-paired the same way as every capacity decision this
+project makes:**
+
+| | RNN h=4 | RNN h=13 | RNN h=26 | GRU h=4 | GRU h=13 | GRU h=26 |
+|---|---|---|---|---|---|---|
+| mean diff (52 minus 26) | 0.306 | 0.011 | 0.080 | 0.181 | 0.234 | **1.339** |
+| t | 1.68 | 0.03 | 0.09 | 1.01 | 0.88 | **2.88** |
+| significant? | no | no | no | no | no | **yes (5%)** |
+
+GRU shows one real result: h=26 MAE is significantly lower with
+lookback=26 (25.11% to 24.85% MAPE); h=4/h=13 unaffected. RNN shows no
+significant effect anywhere, but critically, every single point estimate
+also favours 26 over 52 -- there is no horizon, for either architecture,
+where the direction points against this change. Checked specifically
+because "not significant" is not the same as "no effect either way," and
+the direction matters before extending a change validated on one
+architecture to both.
+
+**Owner decision, 2026-09-23: adopt lookback=26 for both RNN and GRU in
+`build3.yaml`,** not GRU alone. `configs/build3.yaml`'s `lookback`
+changed from 52 to 26. This is a deliberate departure from how the
+equivalent AFEX decision (D-66) was made: AFEX's RNN operational and GRU
+full-exog are already separate, independently-tuned builds by D-39's own
+design, so changing one alone preserved nothing. FEWSNET's build3.yaml is
+a single shared config specifically so that any RNN-vs-GRU difference is
+attributable to the recurrent cell alone (D-38's explicit "same
+everything but the recurrent cell" guarantee) -- forking a GRU-only
+lookback would have broken that guarantee for a change that has no
+confirmed downside for RNN either. `outputs/build3_underfit_corrected/
+{RNN,GRU}_unconditional/` now hold the lookback=26 runs; the superseded
+lookback=52 runs are retained, not deleted, at `..._lookback52_superseded/`
+(D-16 precedent).
+
+**Not yet updated as a result of this change.** `outputs/
+fewsnet_final_scoring_candidates.csv`, `outputs/capacity_bracket_comparison.csv`
+and the other historical aggregate/summary tables still reflect the
+lookback=52 numbers for build3 and have not been regenerated. Anyone
+pulling from those files rather than from `build3_underfit_corrected`'s
+live output directories will see stale figures until they are refreshed.
+
+**Cost.** No new compute for the decision itself; the bracket runs
+(4 full 7-seed runs) were already complete from an earlier pass. File
+swap and config edit only.

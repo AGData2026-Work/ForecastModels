@@ -5,6 +5,14 @@
 # premise (see docs/DECISIONS.md D-23): the Week 0 diagnostics indicate
 # under-learning, not overfitting, so build 2's four overfitting safeguards
 # are removed and capacity is raised. Nothing else differs from build2.yaml.
+#
+# lookback=26 (D-49, was 52). Owner decision, 2026-09-23: a seed-paired
+# bracket found GRU significantly better at h=26 (t=2.88) with no
+# significant effect at h=4/h=13; RNN showed no significant effect at any
+# horizon, but every one of its point estimates also favoured 26 over 52,
+# never against. Applied to both architectures, not GRU alone, to preserve
+# the "same everything but the recurrent cell" parity this project's design
+# depends on (D-38) -- confirmed safe for RNN, not just untested for it.
 # ---------------------------------------------------------------------------
 build:
   name: build3_underfit_corrected
@@ -32,7 +40,7 @@ features:
   explicit_lag52: true
 
 model:
-  lookback: 52
+  lookback: 26                     # was 52, see D-49
   hidden: 128                      # was 64
   market_embedding_dim: 8
   head_dropout: 0.0                # was 0.2
