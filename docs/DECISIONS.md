@@ -2232,3 +2232,82 @@ not harder ones.
 
 **Cost.** About 45 minutes for all three, reusing the existing
 predictions_paired.csv files and the D-50-fixed test throughout.
+
+---
+
+## D-54. Regime-aware soft blend, exploratory: `src/regime_blend.py` -- not adopted, not pushed
+
+**Decision/finding.** Follows directly from D-52's finding that both
+architectures lose significantly to naive in calm years and win only in
+volatile ones. Built a blend that routes each forecast between the raw
+model and D-52's per-market seasonal naive, weighted by how volatile that
+market currently looks -- using only the price panel and the food
+inflation series already in `data/external/`, no new data. Confirms the
+owner's own question directly: regime *detection* needs nothing beyond
+what's already on disk; only regime *anticipation* (seeing a shock
+coming before it shows in prices) would need the new leading-indicator
+data being sourced separately.
+
+**The regime signal.** For each market, trailing 13-week volatility (std
+of weekly % price changes) compared against the *expanding* median of
+that same market's own past volatility readings -- strictly prior
+readings only, confirmed directly before this was trusted (the median at
+date i is built from readings seen before i, not including i). Verified
+computable in real time, no look-ahead of any kind.
+
+**Two versions tried, in order:**
+
+1. **Hard switch** (volatile -> model, calm -> naive). First pass used
+   plain carry-forward naive as the calm default; pooled MAPE improved
+   at every horizon but the by-period breakdown showed the pooled gain
+   was masking a real trade: calm-period losses shrank, but ~29% of
+   shock-period weeks got misrouted to naive (which is worst exactly
+   when misrouted), so the shock-period margin got measurably worse.
+   Switching the calm default to D-52's per-market seasonal naive (per
+   owner instruction, "I thought we agreed it was better anyway")
+   improved *both* sides of that trade simultaneously, not just the
+   calm one -- a better fallback helps whenever it's used, whether
+   correctly (calm) or by misclassification (shock).
+2. **Soft blend.** Instead of an all-or-nothing switch, `z =
+   log(trailing volatility / expanding median)`, weight =
+   `sigmoid(z / scale)` with `scale` set to the standard deviation of z
+   across the whole panel (0.588, data-driven, not hand-picked); final
+   forecast = `weight * model + (1-weight) * seasonal_naive`. Pooled
+   result improves further over the hard switch at every horizon for
+   both architectures -- but the by-period check (run before accepting
+   the pooled number at face value, same discipline as everywhere else
+   this session) shows the soft blend trades a bit *more* shock-period
+   edge for calm-period smoothness than the hard switch did, since it
+   never fully commits to 100% model weight even on clearly volatile
+   weeks. Which version is actually better depends on intended use
+   (general accuracy vs. shock early-warning specifically) -- not
+   resolved here, left as an open question for whoever decides how this
+   gets used.
+
+**Final numbers, soft blend, both architectures (n=1590 per horizon):**
+
+| h | RNN MAE / MAPE | GRU MAE / MAPE | dm_p vs naive | dm_p vs seasonal-naive |
+|---|---|---|---|---|
+| 4 | 16.37 / 8.93% | 15.99 / 8.82% | <.0001 (both) | RNN .022, GRU <.0001 |
+| 13 | 31.45 / 16.21% | 30.17 / 15.75% | <.0001 (both) | RNN .0033, GRU .0001 |
+| 26 | 48.15 / 22.68% | 46.74 / 22.00% | <.0001 (both) | RNN .0005, GRU .0001 |
+
+The blend beats both naive versions with significance (D-50-fixed,
+panel-blocked test) at every horizon, both architectures -- not just a
+lower pooled number, a confirmed one.
+
+**Checks run before committing.** Full suite: 38 passed, 4 skipped
+(unrelated macro/num_layers features, expected on this branch). Script
+output verified to reproduce, to the decimal, the ad hoc exploration's
+numbers before being trusted. No existing file touched other than
+adding `src/regime_blend.py`.
+
+**Consequence.** Not adopted into any production config, and this
+commit is explicitly **not pushed** to GitHub per instruction --
+exploratory, pending a decision on which version (hard or soft) matches
+the intended use, and pending review generally. `outputs/
+regime_blend_soft/{RNN,GRU}/` holds the full per-pair blended forecasts
+and metrics for inspection.
+
+**Cost.** About 90 minutes across both blend versions, formalising the
+script, and the full check pass.
