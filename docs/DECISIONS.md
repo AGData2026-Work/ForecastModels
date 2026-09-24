@@ -2291,3 +2291,52 @@ it was not touched.
 
 **Cost.** No new training; recomputed from existing predictions_paired.csv
 files. About 10 minutes.
+
+---
+
+## D-55. True foreknowledge run on current build3: the deployable model does not, and should not, match it
+
+**Finding.** Current build3 (lookback=26, D-49) had never had a true
+`conditional` run, only `conditional_exog`, a narrower convention that
+withholds the upstream-price channel (see `docs/CONDITIONAL_CONVENTION.md`).
+Ran `python src/run.py --config configs/build3.yaml --kind {RNN,GRU}
+--convention conditional --device cpu` to fill that gap, all drivers
+(diesel, upstream price, rainfall, NDVI) realised in advance rather than
+estimated at origin time.
+
+**Result, deployable (unconditional) vs. true foreknowledge (conditional),
+same grid, n=1590 per horizon:**
+
+| | RNN h=4 | RNN h=13 | RNN h=26 | GRU h=4 | GRU h=13 | GRU h=26 |
+|---|---|---|---|---|---|---|
+| MAE, unconditional (deployable) | 16.72 | 31.76 | 48.92 | 16.33 | 30.45 | 46.75 |
+| MAE, conditional (foreknowledge) | 14.28 | 24.35 | 34.46 | 14.17 | 23.25 | 34.26 |
+| MAPE, unconditional | 9.30% | 17.50% | 26.01% | 9.24% | 17.06% | 24.85% |
+| MAPE, conditional | 8.47% | 14.32% | 19.56% | 8.23% | 13.62% | 19.20% |
+
+Foreknowledge wins by a wide, growing margin with horizon (about 15% lower
+MAE at h=4, up to 30% lower by h=26), confirmed significant at every
+horizon for both architectures with the D-50-fixed, market-blocked DM test
+(dm_p effectively 0, dm_stat 6.5-8.8, all favouring the conditional run).
+
+**This is the expected, correct result, not a finding to act on.** Per
+`docs/CONDITIONAL_CONVENTION.md` and this file's own hard rule, a
+conditional figure assumes perfect foresight of rainfall, diesel and
+upstream prices and is never presented as achievable accuracy. The
+deployable model losing to it by a wide margin is the model behaving
+correctly, since real driver uncertainty is a genuine cost, not a
+modelling failure to close. Raised because the question "does our
+current model beat the foreknowledge variant" had never actually been
+checked on current build3 before today; `conditional_exog`'s numbers
+(D-nothing logged; see the earlier session note) had been mistakenly
+read as answering it, and they measure a different, narrower thing.
+
+**Not a change-control result either.** `change_control()` reports PASS
+for the conditional run against panel_fe at both gate horizons, but
+that gate is meaningless here: panel_fe's own convention is unresolved
+(`docs/CONDITIONAL_CONVENTION.md`), and comparing a foreknowledge
+challenger run to the incumbent proves nothing about deployable
+accuracy either way.
+
+**Cost.** About 15 minutes total training (RNN and GRU, current
+build3.yaml, 35 retrain cuts, 7 seeds each), plus the DM check.
