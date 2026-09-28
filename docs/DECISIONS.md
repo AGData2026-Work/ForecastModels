@@ -3497,3 +3497,50 @@ n = 908 (v2) and 960 (v3) per horizon.
 **Cost.** About 1 hour 15 minutes: eight bracket runs (~20 min in the
 background), rebuilding and validating the benchmark script against v2,
 and the v3 runs.
+
+---
+
+## D-75. Owner decision: GRU full-exog lookback reverted from 26 to 52
+
+**Decision.** Owner instruction, 2026-09-28. `configs/afex_operational_
+full_exog.yaml` `lookback` changed from 26 back to 52. D-66 adopted 26
+on the v2 panel for a small but significant h=4 gain (t=6.02). D-74's
+re-check on v3 found that gain gone: 52 is marginally better at all three
+horizons (seed-paired t=-0.41, -0.77, -0.23), none significant. With no
+evidence left for 26, reverting also puts both AFEX finalists back on
+the same 52-week window.
+
+**Retrained, not copied.** `outputs/afex_operational_v3/GRU/` rebuilt
+from the updated config. It reproduces D-74's `afex_v3_gru_lookback52`
+bracket run to every printed decimal, confirming the run is
+deterministic under fixed seeds. The lookback-26 run is kept, not
+deleted, at `outputs/afex_operational_v3/GRU_lookback26_superseded/`
+(D-16 precedent). Benchmarks and blend re-run on the new finalist with
+`src/afex_benchmarks.py`.
+
+**GRU finalist, v3, before vs. after:**
+
+| h | MAPE, lookback 26 | MAPE, lookback 52 | vs. naive, 26 | vs. naive, 52 | blend MAPE, 26 | blend MAPE, 52 |
+|---|---|---|---|---|---|---|
+| 4 | 13.78% | 13.80% | -7.55% | -7.38% | 12.50% | 12.52% |
+| 13 | 25.43% | 25.54% | +0.37% | +0.00% | 23.86% | 23.94% |
+| 26 | 35.35% | 34.96% | -4.90% | -3.44% | 33.83% | 33.86% |
+
+n = 960 per horizon, same grid either way. Differences are within seed
+noise, as D-74's test already showed.
+
+**Significance, lookback 52** (DM, D-67-fixed, grouped by market): loses
+to seasonal naive at h=4 (p=.0006) and h=13 (p=.0001), n.s. at h=26
+(p=.34); loses to plain naive at h=4 (p<.0001), ties at h=13 (p=.998),
+n.s. at h=26 (p=.48). The blend beats the raw GRU at h=4 and h=13
+(p<=.0001) but **no longer at h=26 (p=.10)**, so D-74's point 3 ("the
+blend now helps at h=26 too, significant for both") now holds for RNN
+only (p=.04), not GRU. Seasonal naive still beats the blend at h=13
+(p=.0002); n.s. at h=4 and h=26.
+
+**Not re-checked:** the hidden-size brackets were run around the
+lookback-26 finalist (D-74), not this one. Hidden 64 held there with no
+bracket close to significant except hidden 192 at h=4 (t=+2.34, worse);
+not re-run at lookback 52.
+
+**Cost.** About 5 minutes: config edit, one retrain, one benchmark run.
