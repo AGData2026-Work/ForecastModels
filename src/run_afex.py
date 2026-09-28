@@ -91,6 +91,12 @@ def main() -> None:
                     help="persist each seed's trained model + scaler for the most "
                          "recent retrain cut only; off by default, zero effect on "
                          "any existing invocation")
+    ap.add_argument("--maize-only-training", action="store_true",
+                    help="train on the 16 maize series only, instead of pooling all "
+                         "51 series across 7 commodities. Off by default (today's "
+                         "behaviour, unchanged); an ablation for isolating whether a "
+                         "shared-weight effect from the other 6 commodities is "
+                         "helping or hurting maize's own scored accuracy.")
     a = ap.parse_args()
     run_start = time.monotonic()
 
@@ -127,7 +133,8 @@ def main() -> None:
                             fx_rate_path=cfg["data"].get("fx_rate_path"),
                             inflation_path=cfg["data"].get("inflation_path"))
     grid = generate_afex_grid(panel, H, L)
-    train_ids = list(range(len(panel.markets)))
+    train_ids = (maize_series_ids(panel) if a.maize_only_training
+                else list(range(len(panel.markets))))
 
     cuts = retrain_cuts(grid["origin"], cfg["training"]["retrain_every_weeks"])
     grid = grid.assign(cut=assign_to_cuts(grid, cuts))
@@ -149,8 +156,9 @@ def main() -> None:
           f"({panel.log['n_maize_series']} maize, commodities: {panel.log['commodities']}) "
           f"({panel.log['first_week']} -> {panel.log['last_week']})")
     print(f"grid {len(grid)} maize-series-origin rows, {grid['origin'].nunique()} distinct origins")
-    print(f"train on {len(train_ids)} series (all commodities pooled); {len(cuts)} retrain cuts "
-          f"every {cfg['training']['retrain_every_weeks']}w")
+    print(f"train on {len(train_ids)} series "
+          f"({'maize only' if a.maize_only_training else 'all commodities pooled'}); "
+          f"{len(cuts)} retrain cuts every {cfg['training']['retrain_every_weeks']}w")
 
     rows, tlog, skips, splits, epoch_rows = [], [], [], [], []
     T = lambda x: torch.tensor(np.asarray(x, dtype=np.float32), device=dev)

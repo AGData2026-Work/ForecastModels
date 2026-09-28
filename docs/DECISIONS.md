@@ -3172,3 +3172,186 @@ Retraining on v3 is the next step, not folded into this entry.
 **Cost.** About 40 minutes: reading the source's own Corrections sheet,
 the maize-only diff, tracing the state-column break to its root cause,
 the additive loader fix, and validation.
+
+---
+
+## D-72. Both finalists retrained on v3; the regression is real at h=4/h=26, concentrated in the markets whose own maize prices were corrected most
+
+**Run.** `configs/afex_operational.yaml` (RNN, lookback=52, hidden=64)
+and `configs/afex_operational_full_exog.yaml` (GRU, lookback=26,
+hidden=64), unchanged configs, pointed at the v3 panel (D-71). Outputs at
+`outputs/afex_operational_v3/{RNN,GRU}/`. n=960 per horizon (up from 908
+on v2; the 52 extra pairs are Billiri's new maize series).
+
+**Pooled v3 result:**
+
+| h | RNN MAPE | RNN vs. naive | GRU MAPE | GRU vs. naive |
+|---|---|---|---|---|
+| 4 | 13.62% | -7.00% | 13.78% | -7.55% |
+| 13 | 25.57% | +0.07% | 25.43% | +0.37% |
+| 26 | 35.86% | -7.24% | 35.35% | -4.90% |
+
+Against v2 (D-68): RNN was -3.93% / +3.17% / -1.15%, GRU was -6.49% /
++3.72% / +3.96%. On the surface, worse at every horizon.
+
+**Checked the measuring stick before trusting it.** 907 of v2's 908
+(market, origin, h) keys exist unchanged in v3. On that exact common set,
+naive's own MAPE barely moves (12.21%->12.32%, 25.92%->26.03%,
+33.07%->33.08%) while the model's does. Then seed-paired, same 7 seeds,
+same 907 pairs, RNN:
+
+| h | mean diff (v3-v2) | t | p | Real? |
+|---|---|---|---|---|
+| 4 | +0.29pp | 3.29 | 0.001 | Yes, small, every seed worse |
+| 13 | +0.26pp | 0.65 | 0.52 | **No, within seed noise** |
+| 26 | +2.61pp | 2.48 | 0.013 | Yes |
+
+h=13's apparent regression in the pooled comparison was noise; h=4 and
+h=26 are real. Seed spread on the v3 run alone is 1.4-2.9pp across the 7
+seeds, which is why the pooled comparison overstated h=13.
+
+**Ruled out: pooled training absorbing the large non-maize corrections.**
+v3's big corrections are in soybean, sesame, sorghum and paddy (up to
+434% single-week swings, some soybean quotes off by over 1,000%). Two
+reasons this can't be the driver. First, structurally: RNN operational
+has no upstream channel at all, and GRU full-exog's `upstream_lag_map`
+is maize-to-maize, a neighbouring market's own maize price, never a
+sibling commodity; no non-maize price reaches either model as an input.
+Second, tested directly: added `--maize-only-training` to
+`src/run_afex.py` (backward-compatible, off by default; restricts
+`train_ids` to the 16 maize series). On v3, RNN maize-only: -11.28% /
++0.43% / -4.75% vs. naive at h=4/13/26 -- worse than pooled at h=4, not
+better. Maize-only training also loses cuts 1-5 entirely (too few
+training windows with only 16 series), which is D-03's "the binding
+constraint is the number of series" point showing up in reverse.
+
+**What explains it: maize's own corrections, small in aggregate but
+concentrated in a few markets.** Per-market MAPE shift on the common
+pairs, RNN:
+
+| Market | h=4 delta | h=26 delta |
+|---|---|---|
+| Leggal | **+3.23pp** | **+4.62pp** |
+| Giwa | +1.33pp | +1.32pp |
+| Kumo | +1.07pp | +2.57pp |
+| Bali | +0.62pp | +3.57pp |
+| Danja | +0.22pp | +3.36pp |
+| Pambegua (n=10) | +0.23pp | -16.80pp |
+
+Leggal leads both horizons, and Leggal's own maize prices took the
+single largest raw corrections in the v2->v3 diff (Sept-Oct 2023, -6% to
+-19%). Giwa had three low-outlier quotes removed near Feb 2026
+(`Excluded_Quotes`, ratio 0.30-0.32 of series median) plus several value
+corrections up to 15%. RNN reads only a market's own price history, so a
+market whose own history changed most shows the most forecast change.
+Not a pipeline problem; the model is correctly responding to the data
+changing under it.
+
+**Why AFEX loses to naive at all: one hypothesis tested, ruled out.**
+The panel is 41-44% proxy-filled at scored origins/targets. If an
+origin and its target both fall inside the same straight-line
+interpolated stretch, naive wins by construction. Split every v3 scored
+pair by whether origin and target are both real reports:
+
+| h | Real-only n | vs. naive | Proxy-involved n | vs. naive |
+|---|---|---|---|---|
+| 4 | 563 | -9.14% | 397 | -4.15% |
+| 13 | 536 | -0.94% | 424 | +1.40% |
+| 26 | 551 | -8.04% | 409 | -6.02% |
+
+The model loses to naive *more* on real-only pairs, not less. So naive's
+edge isn't an interpolation artefact.
+
+**What's left, from what's already documented:** v3's own `Independence`
+sheet reports 3.0 effective independent series out of 52 at 13-week
+changes (mean pairwise correlation +0.561). Pooling 51 series gives the
+appearance of scale without much independent signal. Add a shorter
+history (2021 start vs. FEWSNET's 2012) and farmgate WhatsApp reports
+(midpoint-of-range quotes, frequent gaps) rather than a curated
+wholesale survey, and there's less structure for the model to find
+beyond what naive's own week-to-week persistence already captures. This
+is a property of the data source, not something the pipeline is doing
+wrong. Not tested further here.
+
+**Checks.** Full suite: 40 passed, 2 skipped after the
+`--maize-only-training` addition. No existing invocation changes
+behaviour.
+
+**Cost.** About 90 minutes: two full retrains, the maize-only ablation,
+the seed-paired test, the per-market split, the Excluded_Quotes trace,
+and the proxy split.
+
+---
+
+## D-73. A tolerance-band accuracy metric by geopolitical zone, applied to the v3 finalists
+
+**What the metric is.** Owner-specified, externally motivated: a forecast
+**passes** if it lands within X% of the actual price, above or below;
+otherwise it **fails**. Two versions were computed:
+- **Zone-specific bounds:** North West 8%, North East 21%, North Central
+  8% (AFEX has no South West market, so FEWSNET's 10% South West bound
+  doesn't apply here).
+- **One national bound:** 12% for every market.
+
+Also reported: **mean deviation** (average |forecast - actual| / actual
+across all predictions in a zone, pass and fail both; the same quantity
+as MAPE, reported here because it's threshold-free and so comparable
+across zones where pass rate is not), and **average overshoot** (for
+FAIL predictions only, how many percentage points past the bound they
+land on average).
+
+**Zone mapping**, from `AFEX_MARKET_STATE` (D-71) and Nigeria's six
+geopolitical zones:
+- North West: Anchau, Danja, Dawanau, Giwa, Ikara, Pambegua, Saminaka,
+  Tundun Saibu (Dandume also, but dropped from scoring)
+- North East: Bali, Billiri, Garbabi, Gazabu, Jalingo, Kumo, Leggal
+  (Mutumbiyu also, not in the scored output)
+- North Central: Jengre only
+
+All figures below from `outputs/afex_operational_v3/{RNN,GRU}/
+predictions_paired.csv`, maize series only.
+
+**Zone-specific bounds, h=4 (1-month) only:**
+
+| Zone | Bound | n | RNN pass | GRU pass | RNN mean dev | GRU mean dev |
+|---|---|---|---|---|---|---|
+| North West | 8% | 398 | 45.0% | 45.5% | 11.08% | 11.39% |
+| North East | 21% | 448 | 68.8% | 66.5% | 16.54% | 16.65% |
+| North Central | 8% | 114 | 46.5% | 44.7% | 11.02% | 10.87% |
+
+**National 12% bound, all three horizons:**
+
+| Zone | 1mo pass (RNN/GRU) | 3mo pass | 6mo pass |
+|---|---|---|---|
+| North West | 61.8% / 61.1% | 26.1% / 23.9% | 13.1% / 15.8% |
+| North East | 37.7% / 39.5% | 18.5% / 20.1% | 10.3% / 19.0% |
+| North Central | 64.9% / 65.8% | 30.7% / 28.9% | 23.7% / 26.3% |
+
+| Zone | 1mo overshoot (RNN/GRU) | 3mo overshoot | 6mo overshoot |
+|---|---|---|---|
+| North West | 8.30 / 8.98pp | 16.46 / 16.24pp | 28.75 / 32.40pp |
+| North East | 11.29 / 12.02pp | 22.00 / 21.65pp | 25.42 / 24.63pp |
+| North Central | 8.96 / 8.99pp | 20.15 / 20.09pp | 39.45 / 44.17pp |
+
+**What to take from it.**
+1. North East is AFEX's weakest zone at short horizons on both counts at
+   once: lowest pass rate at 12% (38-40% at 1 month) and largest
+   overshoot (11-12pp). Under zone-specific bounds its generous 21% bar
+   hides this (68.8% pass), because its mean deviation (16.5%) is the
+   worst of the three zones.
+2. North Central's 6-month overshoot (39-44pp) is the largest number in
+   either this entry or FEWSNET's equivalent. It is a single market
+   (Jengre, n=114), not an average across several; treat as a flag, not
+   a zone-level finding.
+3. Pass rate under zone-specific bounds measures accuracy relative to a
+   bar that differs by zone; it is not a ranking of where the model
+   forecasts best. Mean deviation is the threshold-free comparison.
+4. AFEX passes at a lower rate than FEWSNET wherever the two are
+   comparable (same zone, same bound, same horizon); see main's D-58.
+   Consistent with D-72's reading of the panel itself.
+
+**Not computed:** zone-specific bounds at 3 and 6 months, and the
+overshoot split by direction (forecast too high vs. too low), were only
+run for FEWSNET, not here.
+
+**Cost.** About 20 minutes, all from existing predictions_paired.csv.
