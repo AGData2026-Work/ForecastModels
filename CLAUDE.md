@@ -138,9 +138,11 @@ Files needed:
    asked.
 5. **The context file's "26,300 parameters" is wrong.** It cannot be identical for an
    RNN and a GRU at equal hidden size. Report measured counts; do not target it.
-6. **The purge in Build 2 falls back** from 78 to 39 to 0 weeks when it would leave
-   too little training data. The applied value is in `split_log.csv`. If it is
-   falling back at most cuts, say so rather than reporting the requested value.
+6. **The purge falls back** when it would leave too little training data:
+   26 -> 13 -> 0 weeks in the current build3.yaml (`purge_weeks: 26`; this was
+   78 -> 39 -> 0 in an older config, update this line again if it changes). The
+   applied value per cut is in `split_log.csv`. If it is falling back at most
+   cuts, say so rather than reporting the requested value.
 
 ## When something looks too good
 

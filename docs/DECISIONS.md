@@ -2340,3 +2340,100 @@ accuracy either way.
 
 **Cost.** About 15 minutes total training (RNN and GRU, current
 build3.yaml, 35 retrain cuts, 7 seeds each), plus the DM check.
+
+---
+
+## D-56. `load_grid`/`build_grid_windows` gain an optional `require_horizons`; 51 new origins scored at h=4/h=13 past the frozen grid's March 2024 end
+
+**Finding.** The frozen grid (`07_panel_fe_forecasts.parquet`) stops at
+origin 2024-03-20 for every market, confirmed by reading the raw file
+directly, not inferred: zero rows exist past that date, for any horizon.
+That's not `load_grid`'s completeness filter hiding later rows, the file
+itself was never built past there, because the last horizon (26 weeks)
+needs a real actual that far out, and `panel_weekly.parquet`'s own price
+history ends 2024-09-18 (2024-09-18 minus 26 weeks lands exactly on
+2024-03-20). h=4 and h=13 already have real actuals for several more
+months of origins that the frozen grid simply never uses.
+
+**Fix, additive only.** `load_grid()` and `build_grid_windows()`
+(`src/data.py`) both gain an optional `require_horizons` parameter,
+defaulting to `None` (= today's behaviour: every horizon in `horizons`
+must have a real actual, unchanged for every existing caller). Passing a
+subset keeps an origin whose longer horizon has no actual yet instead of
+dropping it whole. `run.py` gained a matching `--require-horizons` flag.
+One more guard was needed: the row-construction loop in `run.py` was
+unconditionally building a scoring row for every horizon regardless of
+whether an actual existed, which would have fed `NaN` actuals into
+`mae()`/`mape()` (neither skips `NaN`) and poisoned that horizon's MAE
+for every OTHER origin too, not just the new ones. Fixed by skipping row
+construction when `actual` is `NaN`, itself a no-op under default
+behaviour since that case was previously unreachable.
+
+**New grid.** `src/extend_grid_h4h13.py` continues each market's own
+28-day origin cadence past its last historical origin, for h=4/h=13
+only, using real `panel_weekly.parquet` data already sitting unused
+past March 2024. No new data source. 51 new origins across all 15
+markets (2024-03-27 through 2024-06-19, market-dependent).
+
+**Validated before trusting it.** All 4,770 historical prediction rows
+compared against the existing `build3_underfit_corrected` run:
+max difference ~2e-5 (RNN), ~6e-6 (GRU), floating-point noise. h=26's
+own pooled n stayed at exactly 1,590, untouched.
+
+**The 51 new origins, pooled, both architectures:**
+
+| h | n | RNN MAE/MAPE | RNN vs. naive | GRU MAE/MAPE | GRU vs. naive |
+|---|---|---|---|---|---|
+| 4 | 51 | 75.24 / 10.59% | +24.9% (p<.0001) | 76.90 / 10.46% | +23.2% (p<.0001) |
+| 13 | 51 | 88.33 / 11.02% | +62.6% (p<.0001) | 111.02 / 13.72% | +53.0% (p<.0001) |
+
+Both architectures win decisively here, but n=51 is about 3% the size of
+the canonical 1,590 and sits entirely in the April-June 2024 naira
+devaluation window (naive's own MAE there, 100-236, is 4x+ the panel's
+typical level) -- consistent with the established shock-period pattern,
+not a contradiction of it, but too thin to sit beside the headline
+numbers without this caveat attached.
+
+**Not committed to the frozen grid file itself.** `data/
+baseline_h4h13_extended.parquet` is a new, separate file; `07_panel_fe_
+forecasts.parquet` is untouched, per the standing rule.
+
+**Cost.** About 20 minutes: the code change, the grid script, two full
+training runs (~15 min), and the historical-invariance check.
+
+---
+
+## D-57. Two audits: the frozen grid isn't arbitrary, and 2022/2019's losses are the same mechanism as 2015-2019's
+
+**D-01, verified rather than re-trusted.** Rebuilt the exact mistake D-01
+describes: one global 28-day sequence from the earliest legitimate
+origin (2015-09-16) applied to all 15 markets alike, ignoring that five
+markets (Biu, Damaturu, Gombe, Mubi, Potiskum) have no real price data
+until a full year later. Result: 1,680 naive candidate pairs, only 210
+(13%) match the real grid, 1,391 real pairs would be silently missed or
+misdated. The real grid's staggering isn't an arbitrary artifact either:
+every market's first real origin lines up exactly with when that
+market's own price history actually starts (2015-09-16 through
+2016-10-12 across the 15 markets), then proceeds every 28 days from
+there. Reading the grid instead of regenerating it remains the right
+call, and now for a reason beyond loyalty to the retired incumbent: every
+decision this project has logged sits on top of this exact pair set.
+
+**2022 and 2019, same root cause as D-52's 2015-2019 finding, isolated
+this time to two specific years.** Both show the identical three-part
+signature: naive is unusually sharp that year (2022: 9.60% MAPE, the
+best of 2020-2024; 2019: 10.65%, best of 2017-2021), weekly price changes
+are unusually mean-reverting (autocorrelation -0.158 in 2022, -0.171 in
+2019, the two most negative years in the whole 2016-2021 stretch), and
+RNN's direction accuracy collapses below a coin flip (36.8% in 2022,
+44.9% in 2019, against 77-93% in the years around them). 2019's damage is
+not spread across all twelve months: January, October, November and
+December all look normal (60-86% direction accuracy); the collapse is
+concentrated March-September, worst in March, April and August (6-8%
+direction accuracy). The regime blend (D-54/D-55, `regime-blend-
+exploration` branch) softens 2022's loss (RNN: -74.7% raw to -69.6%
+blended) but does not fix it, consistent with a soft blend that never
+fully commits to seasonal naive even in an unambiguously calm year.
+
+**Cost.** About 30 minutes, all read from existing predictions_paired.csv
+files and the raw panel; no new training.

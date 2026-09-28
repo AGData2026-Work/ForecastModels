@@ -168,10 +168,19 @@ def load_grid(
     path: str | Path,
     horizons: list[int],
     drop_targets: list[str] | None = None,
+    require_horizons: list[int] | None = None,
 ) -> tuple[pd.DataFrame, dict]:
     """Baseline forecasts, wide by horizon, one row per (market, origin).
 
     Returns the grid plus a log of what was dropped and why.
+
+    `require_horizons` defaults to None, meaning "require every horizon in
+    `horizons`" -- today's behaviour, unchanged for every caller that doesn't
+    pass it. Pass a subset (e.g. [4, 13] out of horizons=[4, 13, 26]) to keep
+    an origin whose longer horizon has no actual yet (the data hasn't
+    happened) while still scoring it at the horizons that do. This never
+    changes which origins are scored at a horizon that IS required; it only
+    stops an origin missing an unrequired horizon from being dropped whole.
     """
     f = pd.read_parquet(path)
     if set(horizons) - set(f["horizon"].unique()):
@@ -190,7 +199,8 @@ def load_grid(
     piv.columns = [f"{a}_h{h}" for a, h in piv.columns]
     piv = piv.reset_index()
 
-    complete = piv[[f"actual_h{h}" for h in horizons]].notna().all(axis=1)
+    need = require_horizons if require_horizons is not None else horizons
+    complete = piv[[f"actual_h{h}" for h in need]].notna().all(axis=1)
     incomplete = piv[~complete].copy()
     piv = piv[complete].reset_index(drop=True)
 
@@ -200,6 +210,7 @@ def load_grid(
     log = {
         "grid_path": str(path),
         "horizons": horizons,
+        "require_horizons": need,
         "n_market_origin_pairs": int(len(piv)),
         "n_pairs_per_horizon": int(len(piv)),
         "markets": sorted(piv["market"].unique()),
@@ -476,9 +487,21 @@ def build_grid_windows(
     use_lag52: bool, use_realised_drivers: bool,
     realised_upstream: bool = True,
     driver_source: str = "realised",
+    require_horizons: list[int] | None = None,
 ):
     """Windows for scored (market, origin) pairs. Origin price and actuals come
-    from the baseline file so the paired comparison uses identical targets."""
+    from the baseline file so the paired comparison uses identical targets.
+
+    `require_horizons` defaults to None, meaning "require every horizon in
+    `horizons`" -- unchanged behaviour for every caller that doesn't pass it.
+    Pass a subset to keep a window whose longer horizon has no actual yet
+    (its target hasn't happened): `ys`/`act` carry NaN there. Nothing
+    downstream trains on this function's `ys` (it's serve/score windows, not
+    training windows); the caller is responsible for not scoring a NaN
+    actual, since mae()/mape() do not skip NaN themselves.
+    """
+    need = require_horizons if require_horizons is not None else horizons
+    need_idx = [horizons.index(h) for h in need]
     Xs, Fs, ys, meta, skipped = [], [], [], [], []
     for _, r in grid.iterrows():
         j = p.midx.get(r["market"])
@@ -497,12 +520,14 @@ def build_grid_windows(
             continue
         p0 = float(r["origin_price"])
         act = np.array([float(r[f"actual_h{h}"]) for h in horizons])
-        if not np.isfinite(p0) or p0 <= 0 or not np.isfinite(act).all() or (act <= 0).any():
+        need_vals = act[need_idx]
+        if not np.isfinite(p0) or p0 <= 0 or not np.isfinite(need_vals).all() or (need_vals <= 0).any():
             skipped.append((r["market"], r["origin"], "bad_actual_or_origin_price"))
             continue
         Xs.append(X)
         Fs.append(F)
-        ys.append(np.log(act) - np.log(p0))
+        with np.errstate(invalid="ignore", divide="ignore"):
+            ys.append(np.log(act) - np.log(p0))
         row = dict(market=r["market"], market_id=j, origin=pd.Timestamp(r["origin"]),
                    origin_price=p0)
         for h in horizons:

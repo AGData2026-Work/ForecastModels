@@ -82,6 +82,11 @@ def main() -> None:
     ap.add_argument("--panel", default=None, help="override data.panel from the config")
     ap.add_argument("--baseline", default=None,
                     help="override data.baseline_forecasts from the config")
+    ap.add_argument("--require-horizons", type=int, nargs="+", default=None,
+                    help="only these horizons (a subset of --config's protocol.horizons) "
+                         "must have a real actual for an origin to be scored; others may "
+                         "be absent (their target hasn't happened yet). Omit for today's "
+                         "behaviour: every horizon required, unchanged.")
     a = ap.parse_args()
     run_start = time.monotonic()
 
@@ -118,7 +123,8 @@ def main() -> None:
                        fourier_k=cfg["features"]["fourier_k"],
                        interp_limit=cfg["data"]["price_interp_limit_weeks"])
     grid, glog = load_grid(cfg["data"]["baseline_forecasts"], H,
-                           drop_targets=cfg["data"]["drop_target_dates"])
+                           drop_targets=cfg["data"]["drop_target_dates"],
+                           require_horizons=a.require_horizons)
 
     scored = glog["markets"]
     if cfg["data"]["train_markets"] == "all_in_panel":
@@ -185,7 +191,8 @@ def main() -> None:
 
         Xte, Fte, yte, mte, sk = build_grid_windows(
             panel, served, H, L, use_lag52=use_lag52, use_realised_drivers=use_realised,
-            realised_upstream=realised_upstream, driver_source=driver_source)
+            realised_upstream=realised_upstream, driver_source=driver_source,
+            require_horizons=a.require_horizons)
         if len(sk):
             sk = sk.assign(cut=cut)
             skips.extend(sk.to_dict("records"))
@@ -247,12 +254,21 @@ def main() -> None:
             for r in range(len(mte)):
                 p0 = float(mte["origin_price"].iloc[r])
                 for hi, h in enumerate(H):
+                    actual_h = mte[f"actual_h{h}"].iloc[r]
+                    if pd.isna(actual_h):
+                        # require_horizons let this origin through without every
+                        # horizon's actual existing yet (e.g. h=26's target hasn't
+                        # happened). The model still predicts it -- nothing to
+                        # score it against, so don't manufacture a row: an
+                        # actual=NaN row here would poison this horizon's MAE
+                        # for every OTHER origin too (mae() does not skip NaN).
+                        continue
                     rows.append(dict(
                         model=a.kind, build=cfg["build"]["name"],
                         convention=a.convention, seed=seed,
                         origin=mte["origin"].iloc[r], market=mte["market"].iloc[r],
                         h=h, origin_price=p0,
-                        actual=float(mte[f"actual_h{h}"].iloc[r]),
+                        actual=float(actual_h),
                         pred=float(p0 * np.exp(yhat[r, hi])),
                         panel_fe=float(mte[f"panel_fe_h{h}"].iloc[r]),
                         naive=float(mte[f"naive_h{h}"].iloc[r])))
