@@ -2479,3 +2479,133 @@ fully commits to seasonal naive even in an unambiguously calm year.
 
 **Cost.** About 30 minutes, all read from existing predictions_paired.csv
 files and the raw panel; no new training.
+
+---
+
+## D-58. A tolerance-band accuracy metric by geopolitical zone
+
+**What the metric is.** Owner-specified, externally motivated: a forecast
+**passes** if it lands within X% of the actual price, above or below;
+otherwise it **fails**. Two versions:
+- **Zone-specific bounds:** North West 8%, North East 21%, South West 10%.
+- **One national bound:** 12% for every market.
+
+Reported alongside pass rate: **mean deviation** (average |forecast -
+actual| / actual across every prediction in the zone, the same quantity
+as MAPE; reported because it has no threshold and so compares zones
+fairly where pass rate does not), and **average overshoot** (FAIL
+predictions only: how many percentage points past the bound they land).
+
+**Zone mapping** (Nigeria's six geopolitical zones; FEWSNET covers three):
+- North West: Dandume, Giwa, Saminaka, Kano/Dawanau, Kaura Namoda,
+  Gwandu/Dodoru, Gujungu (n=775 per horizon)
+- North East: Biu, Maiduguri, Damaturu, Potiskum, Gombe, Mubi (n=594)
+- South West: Lagos/Mile 12, Ibadan/Bodija (n=221)
+
+**Source.** `outputs/build3_underfit_corrected/{RNN,GRU}_unconditional/`,
+the canonical n=1590 run, unless stated. Not the D-56 extension.
+
+### Zone-specific bounds
+
+| Zone | Bound | 1mo pass (RNN/GRU) | 3mo pass | 6mo pass |
+|---|---|---|---|---|
+| North West | 8% | 52.5% / 51.6% | 26.5% / 26.7% | 18.1% / 19.5% |
+| North East | 21% | 90.9% / 91.8% | 70.0% / 73.1% | 48.5% / 52.4% |
+| South West | 10% | 77.4% / 77.8% | 41.2% / 44.3% | 32.1% / 33.0% |
+
+| Zone | 1mo mean dev (RNN/GRU) | 3mo mean dev |
+|---|---|---|
+| North West | 10.28% / 10.18% | 18.82% / 18.56% |
+| North East | 8.75% / 8.64% | 16.63% / 15.86% |
+| South West | 7.31% / 7.57% | 15.19% / 15.01% |
+
+Average overshoot of fails, one number per zone:
+
+| Zone | 1mo (RNN/GRU) | 3mo | 6mo |
+|---|---|---|---|
+| North West | 9.60 / 9.14pp | 16.26 / 15.82pp | 24.49 / 23.72pp |
+| North East | 8.39 / 8.85pp | 13.69 / 13.21pp | 18.87 / 18.18pp |
+| South West | 10.36 / 10.32pp | 12.78 / 12.71pp | 20.40 / 19.06pp |
+
+Split by direction (RNN; GRU follows the same pattern):
+
+| Zone | h | too high: n, overshoot | too low: n, overshoot |
+|---|---|---|---|
+| North West | 4 | 154, 12.07pp | 214, 7.83pp |
+| North East | 4 | 31, 11.15pp | 23, 4.68pp |
+| South West | 4 | 19, 12.79pp | 31, 8.88pp |
+| North West | 13 | 250, 17.63pp | 320, 15.19pp |
+| North East | 13 | 82, 18.69pp | 96, 9.42pp |
+| South West | 13 | 45, 14.21pp | 85, 12.02pp |
+
+### National 12% bound
+
+| Zone | 1mo pass (RNN/GRU) | 3mo pass | 6mo pass |
+|---|---|---|---|
+| North West | 68.3% / 69.8% | 38.7% / 39.7% | 27.2% / 28.9% |
+| North East | 74.9% / 74.6% | 48.3% / 48.5% | 26.1% / 30.0% |
+| South West | 81.0% / 81.4% | 47.5% / 50.2% | 33.9% / 37.6% |
+| **All** | **72.5% / 73.2%** | **43.5% / 44.5%** | **27.7% / 30.5%** |
+
+| Zone | 1mo overshoot (RNN/GRU) | 3mo | 6mo |
+|---|---|---|---|
+| North West | 9.41 / 9.56pp | 15.16 / 14.76pp | 23.33 / 22.59pp |
+| North East | 8.67 / 8.45pp | 14.78 / 13.59pp | 20.71 / 19.91pp |
+| South West | 10.16 / 10.09pp | 12.21 / 12.11pp | 18.94 / 18.36pp |
+
+### Per market, zone-specific bounds, h=4, North West and South West
+
+| Market | Bound | RNN pass | GRU pass |
+|---|---|---|---|
+| Gwandu, Dodoru | 8% | 60.4% | 56.8% |
+| Kaura Namoda | 8% | 59.5% | 60.4% |
+| Gujungu | 8% | 56.8% | 55.0% |
+| Dandume | 8% | 53.6% | 52.7% |
+| Giwa | 8% | 52.3% | 45.9% |
+| Kano, Dawanau | 8% | 52.3% | 55.9% |
+| **Saminaka** | 8% | **32.7%** | **34.5%** |
+| Lagos, Mile 12 | 10% | 80.0% | 80.9% |
+| Ibadan, Bodija | 10% | 74.8% | 74.8% |
+
+### Blend and naive, zone-specific bounds, h=4
+
+From `outputs/regime_blend_soft/{RNN,GRU}/` (the main blended
+configuration, regime-blend-exploration branch's D-56), which runs on
+the **extended** n=1647 grid, not the n=1590 grid above:
+
+| Zone | RNN blend | GRU blend | Naive |
+|---|---|---|---|
+| North West (n=802) | 53.4% | 53.7% | 52.4% |
+| North East (n=616) | 91.7% | 92.2% | 89.1% |
+| South West (n=229) | 76.0% | 77.3% | 76.0% |
+
+Blend vs. naive here is a same-pairs comparison. **Blend vs. the raw
+model tables above is not**: different grids (1647 vs. 1590 pairs), so
+the small blend-over-raw gap should not be quoted without re-scoring the
+raw model on the extended grid first. Flagged rather than smoothed; an
+earlier chat summary compared them directly and also misquoted the raw
+North East figure.
+
+### What to take from it
+
+1. **Pass rate under zone-specific bounds is not a ranking of where the
+   model forecasts best.** North East's 91% at 1 month comes largely from
+   its 21% bar; its mean deviation (8.75%) is only modestly better than
+   North West's (10.28%), while the pass-rate gap is 38 points. Mean
+   deviation is the threshold-free comparison.
+2. **Saminaka is the single biggest drag on North West**: roughly half
+   the pass rate of every other North West market, both architectures,
+   on a full n=110. Unexplained here; worth its own look.
+3. **Failures that overshoot (forecast too high) miss by more than
+   failures that undershoot**, every zone, both horizons checked, both
+   architectures. Most pronounced in North East (18.7pp vs. 9.4pp at 3
+   months).
+4. **North East fails most narrowly at every horizon** under both bound
+   schemes. **North West is worst on both pass rate and overshoot by 6
+   months**, the two problems stacking.
+5. **Pass rate falls fast with horizon at a fixed bar**: at 12%,
+   roughly 73% / 44% / 29% at 1 / 3 / 6 months.
+6. AFEX computed the same way on its own branch (afex-multicommodity
+   D-73) passes at a lower rate wherever the two are comparable.
+
+**Cost.** About 45 minutes across all tables; read-only, no training.
