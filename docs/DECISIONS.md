@@ -2340,3 +2340,80 @@ accuracy either way.
 
 **Cost.** About 15 minutes total training (RNN and GRU, current
 build3.yaml, 35 retrain cuts, 7 seeds each), plus the DM check.
+
+---
+
+## D-56. Three FEWSNET markets extended past 2024-09-18 with AFEX price and UN climate data; thin, mixed results
+
+**What this branch is for.** Dandume, Kano/Dawanau and Saminaka are the
+only three FEWSNET markets with a name-match in the AFEX multicommodity
+panel. Kept deliberately separate from `main` (per instruction) so this
+blended-source variant can't be mistaken for the governed run.
+
+**Data used, real where real exists.** `src/extend_afex_markets.py`
+builds `data/panel_weekly_afex_extended.parquet`:
+- **Price**: AFEX's own proxy-filled maize series for these 3 markets.
+  Coverage in the Oct 2024-Sept 2026 window is real but uneven: Dandume
+  40%, Kano/Dawanau 80%, Saminaka 79%; gaps left null, not guessed.
+- **Upstream price**: real, not filled. Kano/Dawanau and Saminaka's
+  upstream market is Dandume itself (1wk/2wk lag, matching the panel's
+  existing convention); Dandume has none, unchanged.
+- **Rainfall/NDVI**: real, reusing `Downloads/Maize-Forecasting/src/
+  climate_assignment.py`, the actual original script behind this panel's
+  existing climate columns, extended with its own `--end` flag. Validated
+  byte-identical (0.0 diff) against the existing panel on 647 overlapping
+  weeks before trusting the extension. Rainfall's last 12 weeks
+  (2026-06-24 on) are null, a real lag in the underlying dekadal source,
+  not a gap this pipeline created.
+- **Diesel**: the one channel with no real substitute found. Forward-
+  filled flat from each market's own last known value (2024-09-18).
+
+**A location-code identification attempt that correctly failed.**
+Two UN Data Exchange rainfall/NDVI files were also supplied, but their
+own cleaning log states the 37 location codes are never resolved to
+state names and warns against guessing. Tried resolving them anyway by
+correlating each code against these markets' own known rainfall/NDVI
+history; three genuinely different real markets already correlate with
+each other at 0.997-0.9999, so the method has no discriminating power
+here and was abandoned rather than forced. The user separately supplied
+an owner-confirmed mapping from a prior project (`un_location_codes.yaml`,
+confirmed 2026-08-11, not checked against the official codebook) which is
+what made the real climate-data path above possible instead.
+
+**New grid, real actuals only.** `src/extend_afex_grid.py` continues
+each market's own 28-day origin cadence past its last frozen-grid origin;
+an origin is kept only if AFEX has a real (non-null) price at both origin
+and target. 37 of 52 candidate origins survived across the 3 markets.
+Historical rows validated byte-identical against `build3_underfit_
+corrected` before trusting the new ones (max diff ~2e-5).
+
+**Result, pooled across the 37 new origins, both architectures:**
+
+| h | RNN vs. naive | GRU vs. naive | DM significant? |
+|---|---|---|---|
+| 4 | -7.0% (naive wins) | -13.7% (naive wins) | no (p=.69/.43) |
+| 13 | +12.0% | +9.0% | no (p=.28/.47) |
+| 26 | -27.9% | -26.0% | **yes** (p=.0002 both) |
+
+The only result here that clears statistical noise is a **loss** to
+naive at six months. Per-market breakdown is thinner still: Dandume
+(n=5) looks great but is below `metrics.py`'s own n<10 floor for a
+significance test; Kano/Dawanau (n=18) and Saminaka (n=14) both lose at
+1 and 6 months. By year, 2025's 12 origins (Dawanau and Saminaka only,
+Dandume has none past mid-2024) lose badly at 1 and 3 months (-43% to
+-50%, both architectures) -- checked whether this is a calm-period
+effect like D-52/D-57's finding and it doesn't fit that pattern (2025's
+autocorrelation is actually less mean-reverting than 2024's, not more);
+the more likely explanation is the degraded inputs feeding those specific
+origins, confirmed directly: Saminaka's own 26-week lookback ending
+2026-03-04 has price null for 18 of 26 weeks and upstream null
+throughout.
+
+**Consequence.** Real data where it could be gotten, but the sample is
+too thin and the calendar coverage too patchy (especially Dandume, and
+especially 2025) to report this next to the main panel's numbers without
+every caveat above attached. Not a result to act on; a result to keep
+extending if more real AFEX coverage arrives for these 3 markets.
+
+**Cost.** About 3 hours across the market/climate extraction, the grid
+extension, two full training runs, and the validation checks.
