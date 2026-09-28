@@ -3355,3 +3355,145 @@ overshoot split by direction (forecast too high vs. too low), were only
 run for FEWSNET, not here.
 
 **Cost.** About 20 minutes, all from existing predictions_paired.csv.
+
+---
+
+## D-74. Everything else AFEX re-run on v3: brackets still back the adopted configs, benchmarks and blend now a committed script
+
+### Capacity and lookback brackets, re-run on v3
+
+**Why re-run.** D-64 (RNN hidden), D-65 (GRU hidden) and D-66 (lookback)
+were decided on the v2 panel. v3 changed the data under them (D-71), so
+the question is whether those choices still hold.
+
+**Configs regenerated, not reused.** The existing GRU bracket configs
+(`afex_operational_full_exog_hidden96/192`) predate D-66 and run at
+lookback 52, so against today's lookback-26 finalist they change two
+things at once. All eight bracket configs were instead generated fresh
+from the two finalist configs with exactly one field changed, and
+committed as `configs/afex_v3_{rnn,gru}_{hidden,lookback}*.yaml`.
+Outputs at `outputs/afex_v3_brackets/`.
+
+**Seed-paired MAE vs. the finalist, 7 seeds, on the pairs both runs
+share** (t critical value 2.447 at 5%, 6 df):
+
+| Bracket | h=4 diff, t | h=13 diff, t | h=26 diff, t |
+|---|---|---|---|
+| RNN hidden 96 | +1.17, +1.13 | +1.82, +0.62 | -1.34, -0.34 |
+| RNN hidden 192 | +1.93, +1.31 | +1.97, +0.64 | +4.06, +0.42 |
+| RNN lookback 26 | +1.19, +1.45 | +0.34, +0.30 | -1.21, -0.36 |
+| RNN lookback 104 | +21.08, **+12.85** | +86.26, **+9.53** | +201.73, **+14.78** |
+| GRU hidden 96 | +0.66, +1.09 | -0.30, -0.16 | +9.57, +1.75 |
+| GRU hidden 192 | +1.82, +2.34 | +1.55, +0.84 | +12.81, +1.81 |
+| GRU lookback 52 | -0.28, -0.41 | -0.96, -0.77 | -0.71, -0.23 |
+| GRU lookback 104 | +27.33, **+24.22** | +98.78, **+12.53** | +188.27, **+13.98** |
+
+Positive diff = the bracket is worse. n = 960 pairs per horizon for
+every bracket except lookback 104, where the grid collapses to 294 (the
+same coverage collapse D-66 found on v2; a 104-week window plus a
+26-week horizon leaves few series with enough unbroken history). Its
+comparison is on those 294 shared pairs only, and it's much worse there
+too.
+
+**Reading.**
+- **RNN: hidden 64, lookback 52 still holds.** Nothing beats it
+  significantly; lookback 104 is significantly and badly worse.
+- **GRU hidden 64 still holds.** Hidden 192 comes closest to a real
+  difference (h=4, t=+2.34), and it's in the direction of being worse.
+- **GRU lookback: D-66's reason doesn't reproduce on v3.** D-66 adopted
+  26 over 52 for a small but consistent h=4 gain on v2 (MAE 61.36 vs.
+  62.03). On v3, lookback 52 is marginally *better* at all three
+  horizons, none of it significant (t=-0.41, -0.77, -0.23). No
+  evidence to switch either way; 26 stays as adopted. Flagged for the
+  owner rather than changed, since D-66 was an owner decision.
+
+### Harder benchmarks and the regime blend, now a committed script
+
+**`src/afex_benchmarks.py`**, new. D-69 (seasonal, drift and
+moving-average naive) and D-70 (regime-aware soft blend) were built in
+throwaway `/tmp` scripts that no longer exist. This rebuilds them from
+the documented methods (main's D-52/D-53/D-54), reads an existing run's
+`predictions_paired.csv` plus the panel, retrains nothing, and writes
+`predictions_with_benchmarks.csv`, `benchmark_metrics.csv` and
+`benchmark_metadata.json` into the run directory.
+
+**Validated against v2 before use** (same script, pointed at the v2 run
+and the backed-up v2 panel):
+- Drift and moving-average naive: exact match with D-69 at every
+  horizon.
+- Seasonal naive: D-69 turns out to have used one **pooled** seasonal
+  index for every market, not per-market indices (per-market scores 2-5
+  NGN/kg better than D-69 reported; pooled lands within 0.3). The
+  scratch script's exact pooling step wasn't recorded. The script now
+  writes both: `seasonal_naive` (pooled, comparable to D-69, used by the
+  blend) and `seasonal_naive_own` (per-market where >= 3 complete
+  years exist, else pooled; the harder bar). Only 4 of 17 maize series
+  on v3 have 3 complete years.
+- Blend: D-70's by-year table (RNN, h=13) reproduced within 0.05
+  points (2023: 27.14% vs. 27.19%; 2024: 22.51% vs. 22.51%; 2025:
+  19.60% vs. 19.63%). Volatility scale 0.766 on v3 (0.757 on v2 with the
+  rebuild; D-70 reported 0.710, the scratch script's handling of gaps in
+  the volatility window wasn't recorded).
+- **Correction to D-70.** D-70 said seasonal naive beats the blend
+  significantly at both h=4 and h=13. The rebuild reproduces h=13
+  (p=0.0029 RNN, 0.0098 GRU, inside D-70's stated range) but not h=4
+  (p=0.48 RNN, 0.16 GRU on v2).
+
+**Caveat on seasonal naive, for both D-69 and this.** The seasonal
+index is fitted on every complete year in the file, including years
+after a given forecast origin. That gives the benchmark a mild
+in-sample advantage, so "the model loses to seasonal naive" is if
+anything slightly unfair to the model. Kept as D-52/D-69 built it so
+results stay comparable.
+
+**MAPE, v2 vs. v3, same script, pooled over all scored pairs:**
+
+| h | | model | naive | seasonal | seasonal (own) | drift | MA | blend |
+|---|---|---|---|---|---|---|---|---|
+| 4 | RNN v2 | 12.94% | 12.21% | 11.67% | 11.05% | 12.56% | 14.78% | 12.03% |
+| 4 | RNN v3 | 13.62% | 12.43% | 11.86% | 11.26% | 12.74% | 15.06% | 12.49% |
+| 4 | GRU v2 | 13.38% | 12.21% | 11.67% | 11.05% | 12.56% | 14.78% | 12.25% |
+| 4 | GRU v3 | 13.78% | 12.43% | 11.86% | 11.26% | 12.74% | 15.06% | 12.50% |
+| 13 | RNN v2 | 24.98% | 25.89% | 22.19% | 21.15% | 28.71% | 26.66% | 23.70% |
+| 13 | RNN v3 | 25.57% | 26.17% | 22.22% | 21.23% | 28.86% | 26.87% | 24.12% |
+| 13 | GRU v2 | 24.54% | 25.89% | 22.19% | 21.15% | 28.71% | 26.66% | 23.33% |
+| 13 | GRU v3 | 25.43% | 26.17% | 22.22% | 21.23% | 28.86% | 26.87% | 23.86% |
+| 26 | RNN v2 | 34.24% | 33.04% | 33.38% | 32.69% | 39.55% | 34.58% | 33.89% |
+| 26 | RNN v3 | 35.86% | 32.91% | 33.26% | 32.59% | 38.65% | 34.46% | 34.93% |
+| 26 | GRU v2 | 32.83% | 33.04% | 33.38% | 32.69% | 39.55% | 34.58% | 32.58% |
+| 26 | GRU v3 | 35.35% | 32.91% | 33.26% | 32.59% | 38.65% | 34.46% | 33.83% |
+
+n = 908 (v2) and 960 (v3) per horizon.
+
+**Significance on v3** (Diebold-Mariano, D-67-fixed, grouped by market):
+
+| h | Model vs. seasonal | Blend vs. model | Blend vs. seasonal | Model vs. naive |
+|---|---|---|---|---|
+| 4 | seasonal wins, p<.001 both | blend wins, p<.0001 both | n.s. (p=.10 RNN, .13 GRU) | naive wins, p<.0001 both |
+| 13 | seasonal wins, p<.001 both | blend wins, p<=.0001 both | seasonal wins, p<.001 both | tie (p=.97 RNN, .85 GRU) |
+| 26 | seasonal wins RNN p=.005; GRU n.s. p=.18 | blend wins, p=.04 RNN, .02 GRU | seasonal wins RNN p<.001; GRU n.s. | naive wins RNN p=.001; GRU n.s. |
+
+**What changed from v2.**
+1. **At h=26, RNN now loses significantly to both seasonal naive and
+   plain naive.** On v2 neither loss was significant (p=0.48 vs.
+   seasonal, p=0.57 vs. naive). This is the h=26 regression D-72 traced
+   to specific markets, showing up in the benchmark comparison.
+2. **At h=13, RNN's win over plain naive is gone.** Significant on v2
+   (p=0.015), a flat tie on v3 (p=0.97). D-72's seed-paired test found
+   the model's own h=13 accuracy change v2->v3 to be within seed noise;
+   both hold at once because the v2 margin over naive was small to begin
+   with (+3.2%), so a noise-sized shift was enough to erase it. Don't
+   quote the v2 h=13 win as a standing result.
+3. **The blend now helps at h=26 too.** On v2 the blend-vs-model gap at
+   h=26 was noise (p=0.59 RNN, 0.87 GRU); on v3 it's significant for
+   both. A weaker raw model leaves more for the seasonal fallback to
+   add.
+4. **Unchanged:** seasonal naive is still the strongest benchmark at
+   h=4 and h=13, both finalists still lose to it there, and the blend
+   still doesn't beat it at h=13.
+
+**Checks.** Full suite: 40 passed, 2 skipped.
+
+**Cost.** About 1 hour 15 minutes: eight bracket runs (~20 min in the
+background), rebuilding and validating the benchmark script against v2,
+and the v3 runs.
