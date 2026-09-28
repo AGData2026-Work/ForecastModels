@@ -1,8 +1,10 @@
 """
 Walk-forward runner.
 
-    python src/run.py --config configs/build1.yaml --kind RNN --convention unconditional
-    python src/run.py --config configs/build2.yaml --kind GRU --convention conditional --smoke
+    python src/run.py --config configs/build3.yaml --kind GRU --convention unconditional
+    python src/run.py --config configs/build3.yaml --kind GRU --convention conditional --smoke
+
+GRU on build3.yaml is the production model (D-59); retired configs are in configs/_archive/.
 
 Writes to outputs/<build>/<kind>_<convention>/:
     forecasts.csv          per-seed, per-origin, per-horizon predictions

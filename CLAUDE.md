@@ -24,6 +24,19 @@ pairs are left in place (nothing was deleted, D-16's own precedent), since dropp
 them would also be a real, code-level change and that is not what was asked for --
 they are simply no longer what this workstream reports against or is judged by.
 
+## Production models (owner decision, 2026-09-28)
+
+One model per workstream, GRU, plus a point-in-time soft blend; everything
+else is decommissioned (`docs/DECOMMISSIONED_20260928.md`).
+- FEWSNET (this branch, D-59): GRU on `configs/build3.yaml`, blend from
+  `src/regime_blend.py` into `outputs/regime_blend_soft/GRU/`.
+- AFEX (afex-multicommodity, D-76): GRU on
+  `configs/afex_operational_full_exog.yaml`, blend from `src/afex_benchmarks.py`.
+Retired configs are in `configs/_archive/`; retired outputs in
+`outputs/_archive/20260928_decommissioned/`. Do not re-run them without
+being asked. Any seasonal index or scaling statistic feeding a forecast
+must be point-in-time (D-59/D-76 found the original blends were not).
+
 ## Hard rules
 
 **Do not regenerate the evaluation grid.** Read `(market, origin, horizon)` from
@@ -77,8 +90,8 @@ foresight of rainfall, diesel and upstream prices.
 ## Layout
 
     RUNBOOK.md             step-by-step execution instructions
-    configs/build1.yaml    replication of the lost original
-    configs/build2.yaml    the same architectures given their best chance
+    configs/build3.yaml    the production config (GRU, D-59)
+    configs/_archive/      retired configs, incl. build1 (replication) and build2
     src/data.py            panel loading, grid consumption, window construction, scaling
     src/model.py           RecurrentForecaster (RNN|GRU), train_one, predict
     src/walkforward.py     retrain cuts, purged splits, recency weights
@@ -98,8 +111,9 @@ nothing else, so an RNN-versus-GRU difference is attributable to gating alone.
 
     python src/audit.py
     python src/diagnose_convention.py
-    python src/run.py --config configs/build1.yaml --kind RNN --convention unconditional --smoke
-    python src/run.py --config configs/build2.yaml --kind GRU --convention conditional --device mps
+    python src/run.py --config configs/build3.yaml --kind GRU --convention unconditional --smoke
+    python src/run.py --config configs/build3.yaml --kind GRU --convention conditional --device mps
+    python src/regime_blend.py --run-dir outputs/build3_h4h13_extended/GRU_unconditional --out outputs/regime_blend_soft/GRU
     python src/report.py
     python src/report.py --gate
     python src/summary_table.py --csv outputs/20260818_MAPE_summary.csv

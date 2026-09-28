@@ -1,5 +1,13 @@
 # Runbook: running this on a Mac through Claude Code
 
+> **Status, 2026-09-28 (D-59).** The production model is the GRU on
+> `configs/build3.yaml` with the point-in-time soft blend in
+> `src/regime_blend.py`. Build 1, Build 2 and every other variant are retired;
+> their configs are in `configs/_archive/` and their outputs are listed in
+> `docs/DECOMMISSIONED_20260928.md`. Commands below that name `configs/build1.yaml`
+> or `configs/build2.yaml` are historical; prefix `configs/_archive/` to
+> reproduce them.
+
 **As of D-36 (2026-09-16, see `CLAUDE.md` and `docs/DECISIONS.md`), this
 workstream's only benchmark is the naive (do-nothing) forecast.** Anything below
 that discusses `panel_fe`/the incumbent is accurate as a record of the commands

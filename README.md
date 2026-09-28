@@ -1,5 +1,13 @@
 # Maize price forecasting: RNN and GRU challenger rebuild
 
+> **Status, 2026-09-28 (D-59).** The production model is the GRU on
+> `configs/build3.yaml` with the point-in-time soft blend in
+> `src/regime_blend.py`. Build 1, Build 2 and every other variant are retired;
+> their configs are in `configs/_archive/` and their outputs are listed in
+> `docs/DECOMMISSIONED_20260928.md`. Commands below that name `configs/build1.yaml`
+> or `configs/build2.yaml` are historical; prefix `configs/_archive/` to
+> reproduce them.
+
 Rebuild of the lost neural challenger for the Nigerian maize weekly panel, in two
 builds, evaluated against the incumbent panel fixed-effects model and naive
 persistence.

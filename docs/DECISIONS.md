@@ -2633,3 +2633,93 @@ North East figure.
    D-73) passes at a lower rate wherever the two are comparable.
 
 **Cost.** About 45 minutes across all tables; read-only, no training.
+
+---
+
+## D-59. Owner decision: GRU is the one FEWSNET model, with a point-in-time soft blend; everything else decommissioned
+
+**Decision (owner, 2026-09-28).** One model per workstream plus its soft
+blend; everything else documented and retired. For FEWSNET that is the
+GRU on `configs/build3.yaml` (lookback 26, hidden 128, D-49), scored in
+`outputs/build3_h4h13_extended/GRU_unconditional/` (D-56 grid) and
+`outputs/build3_underfit_corrected/GRU_unconditional/` (canonical
+1,590-pair grid). The companion is the soft blend in
+`src/regime_blend.py`, now on main. AFEX made the same call on its
+branch (afex-multicommodity D-76). Every retired path is listed in
+`docs/DECOMMISSIONED_20260928.md`.
+
+**Why GRU over RNN.** Extended grid, same pairs, DM grouped by market:
+
+| h | n | RNN MAE/MAPE | GRU MAE/MAPE | DM p, GRU vs RNN |
+|---|---|---|---|---|
+| 4 | 1647 | 18.50 / 9.34% | 18.18 / 9.29% | .07 |
+| 13 | 1647 | 33.47 / 17.32% | 32.90 / 16.98% | .13 |
+| 26 | 1590 | 48.92 / 26.01% | 46.75 / 24.85% | <.001 |
+
+GRU is ahead at every horizon, significantly at h=26. D-38 already found
+GRU-128 significantly better than the best RNN (hidden 256) on h=13
+direction. RNN-256's MAE edge (D-34) was never re-run at lookback 26 and
+is retired with the rest.
+
+**The blend leaked the future, and is now fixed.** The
+regime-blend-exploration version (its D-54 to D-56) fitted each market's
+seasonal index on every complete year in the panel, including years after
+the origin being forecast, and fed that index into the blended forecast.
+That breaks the hard rule that no statistic derived from a test window
+may reach a fit. The regime-scaling constant `z_scale` was also
+full-sample. Both are now point-in-time:
+- The index for an origin in year Y uses only complete calendar years
+  before Y (at least 3).
+- `z_scale` uses only z readings dated before the origin.
+- With no index available the blend falls back to the pure GRU: 40
+  pairs at h=4/h=13 and 44 at h=26, all 2015 origins in 10 markets.
+- A further 63-64 pairs per horizon have no regime reading and also get
+  pure GRU weight, as before.
+- The point-in-time re-implementation was checked first: with the year
+  filter removed it reproduces the old seasonal-naive column exactly
+  (max difference 1e-13).
+
+| h | GRU | blend, look-ahead (old) | blend, point-in-time | naive |
+|---|---|---|---|---|
+| 4 | 18.18 / 9.29% | 18.00 / 8.89% | 18.52 / 9.32% | 20.48 / 9.69% |
+| 13 | 32.90 / 16.98% | 33.54 / 15.80% | 34.57 / 16.68% | 44.34 / 18.91% |
+| 26 | 46.75 / 24.85% | 46.74 / 22.00% | 47.38 / 22.50% | 56.83 / 23.57% |
+
+**What the corrected blend is and isn't.**
+- **Worse than the raw GRU on MAE**, the primary metric, at the gate
+  horizons: DM p=.027 (h=4) and p=.002 (h=13). No difference at h=26
+  (p=.59). This is why it is the documented companion, not the headline
+  forecast.
+- **Better on MAPE at h=13 and h=26** (16.68% vs. 16.98%; 22.50% vs.
+  24.85%), and still beats naive at every horizon (p<.001).
+- **Better on direction at every horizon**: 63.1% vs. 60.9% (h=4), 67.7%
+  vs. 62.9% (h=13), 61.5% vs. 57.5% (h=26). McNemar chi2 = 4.8, 32.8 and
+  12.3, all above 3.84. Caveat: this pooled McNemar ignores clustering
+  by market, so the h=4 result is the least secure.
+- **Zone pass rates barely move.** D-58 bounds, h=4, blend vs. GRU:
+  North West 53.2% vs. 51.6%, North East 91.7% vs. 91.6%, South West
+  77.3% vs. 77.7%; national 12%: 72.3% vs. 72.9%. These replace D-58's
+  blend row, which used the look-ahead blend.
+
+**Retired.** Every RNN run, build1 and build2, the hidden-size,
+two-layer and lookback brackets, the lookback-52 GRU, the conditional-exog
+GRU (lookback 52), the hard-switch blend, the look-ahead soft blend, the
+pre-D-56 blend, the FEWSNET/AFEX market extension (its own branch, D-56),
+smoke runs and the historical aggregate tables.
+- Outputs moved to `outputs/_archive/20260928_decommissioned/`.
+- Configs moved with `git mv` to `configs/_archive/`.
+- Branches `regime-blend-exploration` and `fewsnet-afex-market-extension`
+  tagged `archive/<name>`, not deleted.
+- Nothing deleted. `outputs/build3_underfit_corrected/GRU_conditional/`
+  stays: it is the only arm comparable to panel FE
+  (`docs/CONDITIONAL_CONVENTION.md`). The RNN code path still runs, for
+  reproduction.
+
+**What this changes elsewhere.**
+- Every soft-blend figure logged before this entry is optimistic: the
+  exploration branch's D-54 to D-56, D-58's blend row, and the "best
+  configuration" tables given in chat on 2026-09-28.
+- `run_all.sh` now defaults to `configs/build3.yaml`, GRU only.
+
+**Cost.** About 40 minutes: point-in-time rewrite, one re-score, archive
+moves. No training.
