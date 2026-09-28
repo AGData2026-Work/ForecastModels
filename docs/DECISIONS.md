@@ -2311,3 +2311,45 @@ and metrics for inspection.
 
 **Cost.** About 90 minutes across both blend versions, formalising the
 script, and the full check pass.
+
+---
+
+## D-55. Hard-switch variant materialised: `--mode hard` was already in the script, just never run for real output
+
+**Finding.** D-54's own text says both the hard switch and the soft blend
+were tried, in that order, before settling on soft. `src/regime_blend.py`
+already has `--mode` with both choices built in; only the soft mode's
+output had ever actually been generated and saved. This closes that gap
+so both variants have real, inspectable results living on this branch,
+not just a flag.
+
+**Run.** `python src/regime_blend.py --run-dir outputs/build3_underfit_corrected/{RNN,GRU}_unconditional --kind {RNN,GRU} --mode hard --out outputs/regime_blend_hard/{RNN,GRU}`.
+No code changed; same script, same panel, same seasonal-naive default.
+
+**Hard vs. soft, both architectures, same lookback=26 base model:**
+
+| | RNN h=4 | RNN h=13 | RNN h=26 | GRU h=4 | GRU h=13 | GRU h=26 |
+|---|---|---|---|---|---|---|
+| MAE, hard switch | 16.79 | 31.78 | 48.23 | 16.34 | 30.53 | 47.14 |
+| MAE, soft blend (D-54) | 16.37 | 31.45 | 48.15 | 15.99 | 30.17 | 46.74 |
+| MAPE, hard switch | 9.15% | 16.62% | 23.10% | 9.04% | 16.31% | 22.60% |
+| MAPE, soft blend (D-54) | 8.93% | 16.21% | 22.68% | 8.82% | 15.75% | 22.00% |
+
+Soft edges out hard at every horizon, both architectures, matching D-54's
+own narrative that soft improved on hard rather than the reverse. The gap
+is small (well under 1 MAPE point everywhere), consistent with D-54's
+account that hard switch's main cost was shock-period edge specifically,
+not overall accuracy -- this pooled table isn't the right place to see
+that trade-off, the by-period breakdown in chat is.
+
+**Both now beat naive significantly** (hard switch's own DM check:
+p=0.0000-0.0001 at every horizon, both architectures) and hard switch
+clears seasonal naive at h=26 for both (p=0.0036 RNN, p=0.0010 GRU) but
+not clearly at h=4/h=13 -- a slightly weaker profile against seasonal
+naive than soft blend already had in D-54.
+
+**Checks run before committing.** Full suite: 38 passed, 4 skipped
+(unchanged from D-54). No script logic touched, only a new invocation
+and its output.
+
+**Cost.** About 5 minutes; the code already existed.
