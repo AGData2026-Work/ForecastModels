@@ -7,7 +7,16 @@ naive (D-52) can be reduced without new data. Everything here uses only the
 maize price panel and the food inflation series already in data/external/ --
 no new data source, per the same finding as D-52's own reasoning.
 
-    python src/regime_blend.py --run-dir outputs/build3_underfit_corrected/RNN_unconditional --kind RNN --out outputs/regime_blend_soft/RNN
+    python src/regime_blend.py --run-dir outputs/build3_h4h13_extended/RNN_unconditional --kind RNN --out outputs/regime_blend_soft/RNN
+
+As of D-56 (this branch), --run-dir should point at outputs/build3_h4h13_extended,
+not outputs/build3_underfit_corrected: main's own D-56 rescued 57 (market, origin)
+pairs at h=4/h=13 (51 genuinely new 2024 origins plus 6 origins a rectangularity
+rule had been dropping whole since 2019), and the blend improves on the same data,
+smaller than the raw model's own gain but real (+3 to +5pp vs. naive at h=13,
+both architectures). outputs/regime_blend_soft/ now holds that run; the prior
+one, built on the pre-D56 baseline, is kept at
+outputs/regime_blend_soft_preD56extension_superseded/ (D-16 precedent).
 """
 from __future__ import annotations
 

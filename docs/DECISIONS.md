@@ -2353,3 +2353,61 @@ naive than soft blend already had in D-54.
 and its output.
 
 **Cost.** About 5 minutes; the code already existed.
+
+---
+
+## D-56. Soft blend re-run on main's D-56 extension; owner decision -- this becomes the main blended configuration going forward
+
+**Why.** Main's own D-56 rescued 57 (market, origin) pairs at h=4/h=13:
+51 genuinely new 2024 origins the frozen grid had never reached, plus 6
+origins a rectangularity rule had been silently dropping in full since
+2019 even though their 1- and 3-month data was always good (see main's
+D-56 for the full mechanism). The question this entry answers: does the
+blend improve the same way the raw model did, or was that gain already
+priced in?
+
+**Run.** `python src/regime_blend.py --run-dir outputs/build3_h4h13_
+extended/{RNN,GRU}_unconditional --kind {RNN,GRU} --mode soft --out
+outputs/regime_blend_soft/{RNN,GRU}`. No script changes; same seasonal
+index, same volatility signal, same everything -- only the input run
+changed.
+
+**Old blend vs. new blend:**
+
+| h | | n | MAE | MAPE | vs. naive |
+|---|---|---|---|---|---|
+| 4 | RNN, old | 1590 | 16.37 | 8.93% | +8.90% |
+| 4 | RNN, new | 1647 | 18.35 | 9.01% | +10.43% |
+| 4 | GRU, old | 1590 | 15.99 | 8.82% | +11.03% |
+| 4 | GRU, new | 1647 | 18.00 | 8.89% | +12.14% |
+| 13 | RNN, old | 1590 | 31.45 | 16.21% | +17.89% |
+| 13 | RNN, new | 1647 | 34.33 | 16.20% | +22.59% |
+| 13 | GRU, old | 1590 | 30.17 | 15.75% | +21.23% |
+| 13 | GRU, new | 1647 | 33.54 | 15.80% | +24.37% |
+| 26 | both | 1590 | unchanged | unchanged | unchanged |
+
+**The gain is real but smaller than the raw model's own.** Raw model
+picked up +7.5pp (RNN) / +5.3pp (GRU) vs. naive at h=13 from the same
+57 pairs; the blend picks up +4.7pp / +3.1pp. Mechanically sensible: the
+blend already leans toward the model during recognized-volatile
+stretches, and these origins (mostly April-June 2024) read as volatile
+to the regime signal, so part of what the raw extension reveals was
+already being captured. Blend still beats the raw model on the same
+extended data at both horizons, both architectures (RNN 3mo MAPE 16.20%
+vs. 17.32%; GRU 15.80% vs. 16.98%), consistent with D-54's original
+finding.
+
+**Owner decision.** This run replaces the prior one as this project's
+main blended configuration. `outputs/regime_blend_soft/{RNN,GRU}/` now
+holds it; the pre-D56 run is kept, not deleted, at `outputs/
+regime_blend_soft_preD56extension_superseded/{RNN,GRU}/` (D-16
+precedent). `src/regime_blend.py`'s own example command updated to
+point at `build3_h4h13_extended` by default going forward.
+
+**Not done.** The hard-switch variant (D-55) has not been re-run against
+the extended baseline; it still reflects the pre-D56 data. Re-basing it
+the same way is the natural next step if hard switch is still wanted for
+comparison.
+
+**Cost.** About 10 minutes: two re-runs of an existing script, the
+directory promotion, and this write-up.
