@@ -13,6 +13,20 @@ the owner has marked as locked decisions.
 Domain: weekly wholesale white maize prices, 15 scored markets in Nigeria, NGN per
 kilogram, 2015-2024. Partners are the Gates Foundation and NADIH.
 
+## Production models (owner decision, 2026-09-28)
+
+One model per workstream, GRU, plus a point-in-time soft blend; everything
+else is decommissioned (`docs/DECOMMISSIONED_20260928.md`).
+- AFEX (this branch, D-76): GRU on `configs/afex_operational_full_exog.yaml`,
+  blend and benchmarks from `src/afex_benchmarks.py`, outputs in
+  `outputs/afex_operational_v3/GRU/`.
+- FEWSNET (main, D-59): GRU on `configs/build3.yaml`, blend from
+  `src/regime_blend.py`.
+Retired configs are in `configs/_archive/`; retired outputs in
+`outputs/_archive/20260928_decommissioned/`. Do not re-run them without
+being asked. Any seasonal index or scaling statistic feeding a forecast
+must be point-in-time (D-59/D-76 found the original blends were not).
+
 ## Hard rules
 
 **Do not regenerate the evaluation grid.** Read `(market, origin, horizon)` from
