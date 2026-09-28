@@ -84,6 +84,22 @@ from data import Panel, build_flat, build_sequence, validate_panel
 FOURIER_PERIOD = 52.18
 FOURIER_K = 2
 
+# Market -> state, sourced directly from the last panel version whose own
+# Panel_Long carried a `state` column (afex_multicommodity_panel.xlsx, the
+# v2 file dated 2026-09-23); the v3 schema drops that column entirely. Not
+# guessed: read straight off v2's own Panel_Long, one row per market,
+# single value confirmed per market. Billiri is in this list even though
+# v2 carried no Billiri MAIZE series -- v2 already had Billiri for other
+# commodities, with this same state, so nothing here is inferred for it.
+AFEX_MARKET_STATE = {
+    "Anchau": "Kaduna", "Bali": "Taraba", "Billiri": "Gombe",
+    "Dandume": "Katsina", "Danja": "Katsina", "Dawanau": "Kano",
+    "Garbabi": "Taraba", "Gazabu": "Taraba", "Giwa": "Kaduna",
+    "Ikara": "Kaduna", "Jalingo": "Taraba", "Jengre": "Plateau",
+    "Kumo": "Gombe", "Leggal": "Gombe", "Mutumbiyu": "Taraba",
+    "Pambegua": "Kaduna", "Saminaka": "Kaduna", "Tundun Saibu": "Kaduna",
+}
+
 
 def _dekadal_state_series(source_path: str | Path, sheet: str, value_col: str,
                           code_to_state: dict[str, str],
@@ -156,7 +172,16 @@ def load_afex_panel(path: str | Path, drop_zero_window_series: bool = True,
                     upstream_lag_map: dict[str, tuple[str, int]] | None = None,
                     diesel_source_path: str | Path | None = None,
                     fx_rate_path: str | Path | None = None,
-                    inflation_path: str | Path | None = None) -> Panel:
+                    inflation_path: str | Path | None = None,
+                    market_state_map: dict[str, str] | None = None) -> Panel:
+    """`market_state_map` is a fallback for a panel file whose Panel_Long has
+    no `state` column (the source's v3 schema dropped it, see DECISIONS on
+    the afex-multicommodity branch). When Panel_Long does carry `state`
+    (every file through v2), that column is used as before and this
+    parameter is ignored -- passing it in that case is harmless. When
+    `state` is absent, `market_state_map` is required and must cover every
+    market in the file; this raises rather than silently leaving a market's
+    driver channels unpopulated."""
     df = pd.read_excel(path, sheet_name="Panel_Long", parse_dates=["date"])
     dates = pd.DatetimeIndex(sorted(df["date"].unique()))
     step = pd.Series(np.diff(dates).astype("timedelta64[D]").astype(int))
@@ -164,7 +189,18 @@ def load_afex_panel(path: str | Path, drop_zero_window_series: bool = True,
         raise ValueError(f"AFEX panel date index is not a clean weekly grid: {step.unique()}")
 
     df = df.copy()
-    market_state = df.groupby("market")["state"].first().to_dict()
+    if "state" in df.columns:
+        market_state = df.groupby("market")["state"].first().to_dict()
+    else:
+        fallback = market_state_map or AFEX_MARKET_STATE
+        missing = sorted(set(df["market"].unique()) - set(fallback))
+        if missing:
+            raise ValueError(
+                f"{path}: Panel_Long has no 'state' column, and the fallback mapping "
+                f"(market_state_map if given, else AFEX_MARKET_STATE) is missing these "
+                f"markets: {missing}. Do not guess a new market's state; source it and "
+                "add it to AFEX_MARKET_STATE explicitly.")
+        market_state = dict(fallback)
     df["series"] = df["market"] + " | " + df["commodity"]
     series = sorted(df["series"].unique())
 

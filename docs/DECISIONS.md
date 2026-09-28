@@ -3111,3 +3111,64 @@ argparsed, with the same no-lookahead check `regime_blend.py`'s
 
 **Cost.** About 1.5 hours across the by-year and pooled checks, reusing
 D-68/D-69's predictions_paired.csv files and the D-67-fixed DM test.
+
+---
+
+## D-71. Panel replaced with v3: five real unit-conversion faults fixed in the source, one market's maize series added
+
+**What changed upstream.** The AFEX source team found and fixed five
+distinct unit-conversion faults in the v2 panel (the one D-68 merged in
+on 2026-09-23), all in how a free-text price quote's unit (per-bag vs.
+per-tonne vs. per-kg) was inferred when the message itself didn't say so
+plainly. Worst case: Dawanau sorghum moved 434% in one week because a
+per-tonne quote written "N195000-Mt" (hyphen form) wasn't recognised by
+the old per-tonne pattern match and got priced as a bag instead. Full
+list in the new file's own `Corrections` sheet; nothing here was found
+or fixed by this project, it's upstream work, adopted as-is.
+
+**Maize specifically got off lightly.** Checked directly rather than
+assumed: of 3,192 overlapping (market, week) maize prices between v2 and
+v3, only 32 (1%) differ by more than 1%, none by more than 19%. Worst:
+Leggal 2023-10-18 (350.88 -> 285.00, -18.8%), Giwa 2026-04-01 (254.51 ->
+292.79, +15.0%). The dramatic corrections (up to 434%, some soybean
+quotes off by over 1,000%) are concentrated in soybean (Garbabi, Bali,
+Danja, Jengre), sesame (Dawanau) and paddy (Jengre), not maize.
+
+**One real addition: Billiri now has a maize series.** v2 already had
+Billiri for other commodities (state: Gombe, confirmed from v2's own
+Panel_Long, not guessed); v3 adds its maize series specifically. 15
+scored maize markets becomes 16 candidates, with Dandume still dropped
+for zero usable 78-week windows -- `src/afex_data.py`'s own
+`drop_zero_window_series` logic, confirmed still triggers the same way
+on v3's Series_Catalogue.
+
+**Schema break, fixed rather than worked around.** v3's `Panel_Long`
+drops the `state` column entirely (replaced by two new columns,
+`proxy_type` and `quotes_on_assumed_100kg`, neither of which this
+project's loader currently consumes). `load_afex_panel()`
+(`src/afex_data.py`) needed `state` for the rainfall/NDVI/diesel driver
+lookups. Fixed additively: the function now uses the `state` column when
+present (every file through v2, unchanged behaviour) and falls back to
+a new `AFEX_MARKET_STATE` constant, or an explicit `market_state_map`
+override, when it's absent. The fallback mapping is not guessed: read
+directly off v2's own `Panel_Long`, one confirmed value per market,
+including Billiri (already present there for its other commodities).
+Raises rather than silently guessing if a market is missing from both.
+
+**File swap.** `data/external/afex_multicommodity_panel.xlsx` now holds
+v3. The prior file is kept, not deleted, at `afex_multicommodity_
+panel_v2_20260923_superseded.xlsx` (D-16 precedent).
+
+**Validated before trusting it.** `load_afex_panel()` against the live
+path: 284 weeks, 51 series (52 minus the Dandume drop), 16 maize series,
+2021-04-07 to 2026-09-09, matching the source file's own README exactly.
+Full test suite: 40 passed, 2 skipped, unchanged.
+
+**Not done yet.** No model has been retrained on v3. Every AFEX output
+currently in `outputs/` (operational, full-exog, all capacity/lookback
+brackets, the regime blend, the naive comparisons) still reflects v2.
+Retraining on v3 is the next step, not folded into this entry.
+
+**Cost.** About 40 minutes: reading the source's own Corrections sheet,
+the maize-only diff, tracing the state-column break to its root cause,
+the additive loader fix, and validation.
