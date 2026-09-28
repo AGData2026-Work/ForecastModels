@@ -1,8 +1,11 @@
 """
 Walk-forward runner for the AFEX multi-commodity farmgate panel.
 
-    python src/run_afex.py --config configs/afex_operational.yaml --kind RNN --smoke
-    python src/run_afex.py --config configs/afex_operational_sorghum.yaml --kind GRU --device mps
+    python src/run_afex.py --config configs/afex_operational_full_exog.yaml --kind GRU --smoke
+    python src/run_afex.py --config configs/afex_operational_full_exog.yaml --kind GRU --device mps
+
+The production AFEX model is the GRU on afex_operational_full_exog.yaml
+(D-76); every other AFEX config is in configs/_archive/.
 
 No --convention: this panel has no forecast-window driver data, so there is
 no "conditional"/foreknowledge arm. `data.sibling_commodity` in the config

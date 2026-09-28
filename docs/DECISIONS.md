@@ -3544,3 +3544,86 @@ bracket close to significant except hidden 192 at h=4 (t=+2.34, worse);
 not re-run at lookback 52.
 
 **Cost.** About 5 minutes: config edit, one retrain, one benchmark run.
+
+---
+
+## D-76. Owner decision: GRU is the one AFEX model, with a point-in-time soft blend; everything else decommissioned
+
+**Decision (owner, 2026-09-28).** One model per workstream plus its soft
+blend; everything else documented and retired. For AFEX that is the GRU
+on `configs/afex_operational_full_exog.yaml` (hidden 64, lookback 52,
+rainfall + NDVI + lagged neighbour price), scored in
+`outputs/afex_operational_v3/GRU/`. FEWSNET made the same call on main
+(D-59). Every retired path is listed in `docs/DECOMMISSIONED_20260928.md`.
+
+**Why GRU over RNN.** On accuracy they are a tie. v3, n=960 per horizon,
+same pairs, DM grouped by market:
+
+| h | RNN MAE/MAPE | GRU MAE/MAPE | DM p, GRU vs RNN |
+|---|---|---|---|
+| 4 | 61.68 / 13.62% | 61.90 / 13.80% | .63 |
+| 13 | 134.57 / 25.57% | 134.65 / 25.54% | .96 |
+| 26 | 189.86 / 35.86% | 183.13 / 34.96% | .28 |
+
+What decided it: one architecture across both workstreams (FEWSNET's GRU
+case is clear, D-59); GRU's small edges at h=26 and in 1-month direction
+(50.1% vs. 44.2%) point one way, though neither is significant. The cost
+is keeping three external data feeds and open items 2, 8 and 9 on
+`docs/AFEX_OUTSTANDING.md`. RNN would have been equally defensible on
+accuracy.
+
+**The blend leaked the future, and is now fixed.** `src/afex_benchmarks.py`
+(D-74) fitted the pooled seasonal index on every complete year in the
+file, including years after each origin, and the blend used that index.
+The regime-scaling constant `z_scale` was also full-sample. Both are now
+point-in-time. The index for an origin in year Y uses only complete
+calendar years before Y (at least 2), and `z_scale` uses only z readings
+dated before the origin. With no index available the blend falls back to
+the pure model. That applies to 410 of 960 pairs per horizon: every 2023
+origin, since the panel starts April 2021, leaving 2022 as the only
+complete prior year. The old look-ahead column is kept as
+`seasonal_naive_fullsample`, for comparison with D-69/D-74 only.
+
+| h | GRU | blend, look-ahead (D-74/D-75) | blend, point-in-time | naive |
+|---|---|---|---|---|
+| 4 | 61.90 / 13.80% | 57.13 / 12.52% | 61.09 / 13.74% | 57.65 / 12.43% |
+| 13 | 134.65 / 25.54% | 125.17 / 23.94% | 127.16 / 24.77% | 134.66 / 26.17% |
+| 26 | 183.13 / 34.96% | 177.05 / 33.86% | 168.47 / 33.27% | 177.04 / 32.91% |
+
+Point-in-time blend vs. raw GRU: DM p=.09 (h=4), <.001 (h=13), .004
+(h=26), blend better at all three. Vs. naive: worse at h=4 (p=.002),
+better at h=13 (p=.001), n.s. at h=26 (p=.24).
+
+**The blend's gain is year-dependent; flagged, not smoothed.** On the 550
+pairs per horizon that have a point-in-time index, h=13 MAE:
+
+| origin year | n | GRU | blend | seasonal naive (point-in-time) | naive |
+|---|---|---|---|---|---|
+| 2024 | 388 | 169.79 | 146.44 | 118.60 | 159.17 |
+| 2025-26 | 162 | 60.30 | 71.86 | 93.49 | 64.49 |
+
+In 2024 the seasonal pattern dominated and the GRU was worst. In 2025-26
+the GRU was best and seasonal naive worst. h=26 shows the same flip. The
+blend's pooled result is the average of a year where seasonality won and
+a year where it lost. With two to three years of seasonal history, it is
+not known which is typical. Treat the blend as a hedge, not as a model
+that has been shown to be better.
+
+**Retired.** RNN finalist and all RNN runs, every hyperparameter bracket,
+the v2-era variants (agroclimatic, diesel, macro, hidden brackets,
+lookback brackets, 20260916 updates), the maize-only ablation, the
+lookback-26 GRU, the look-ahead blend outputs, smoke runs and the
+historical aggregate tables. Outputs were moved to
+`outputs/_archive/20260928_decommissioned/` and configs with `git mv` to
+`configs/_archive/`. Nothing was deleted. The RNN code path still runs,
+for reproduction.
+
+**What this changes elsewhere.** Every AFEX blend figure logged before
+this entry (D-70, D-74, D-75, and the "best configuration" answers given
+in chat on 2026-09-28) used the look-ahead index and is optimistic.
+`docs/AFEX_OUTSTANDING.md` updated: item 4 (point-in-time index) closed
+by this entry; items 5 (hard-switch blend) and 10 (RNN as direction
+pick) closed as moot.
+
+**Cost.** About 40 minutes: point-in-time rewrite of the benchmark
+script, one re-score, archive moves. No training.
