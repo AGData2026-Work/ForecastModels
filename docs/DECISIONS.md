@@ -2343,7 +2343,7 @@ build3.yaml, 35 retrain cuts, 7 seeds each), plus the DM check.
 
 ---
 
-## D-56. `load_grid`/`build_grid_windows` gain an optional `require_horizons`; 51 new origins scored at h=4/h=13 past the frozen grid's March 2024 end
+## D-56. `load_grid`/`build_grid_windows` gain an optional `require_horizons`; 57 (market, origin) pairs newly scored at h=4/h=13
 
 **Finding.** The frozen grid (`07_panel_fe_forecasts.parquet`) stops at
 origin 2024-03-20 for every market, confirmed by reading the raw file
@@ -2375,12 +2375,54 @@ only, using real `panel_weekly.parquet` data already sitting unused
 past March 2024. No new data source. 51 new origins across all 15
 markets (2024-03-27 through 2024-06-19, market-dependent).
 
+**A second, unplanned effect of the same fix, found while checking n
+rather than assumed.** Comparing the new run's rows against the old
+run's by exact (market, origin, h) key, not just by date range, surfaced
+6 more newly-scored pairs that have nothing to do with 2024: Biu,
+Damaturu, Lagos/Mile 12, Maiduguri, Potiskum and Saminaka each had an
+origin at 2018-10-24 that the canonical run was dropping **in its
+entirety** -- not because its 1- or 3-month data was bad, but because
+its *6-month* target lands on 2019-04-24, the panel's known 15-week
+outage week (D-02). Confirmed directly against `07_panel_fe_forecasts.
+parquet`: all 9 rows D-02 documents as hitting that outage week are
+there, 6 of them are h=26 rows from this same origin, with perfectly
+real h=4/h=13 targets (2018-11-21, 2019-01-23) sitting right next to
+them. D-02's rectangularity rule was discarding those two good horizons
+along with the one bad one. `require_horizons=[4,13]` rescues exactly
+that: kept at h=4/h=13, correctly still excluded at h=26. The other 3
+rows D-02 names (Dandume/Mubi at h=4, Gombe at h=13) hit the outage week
+on their *own* required horizon and stay excluded, correctly -- nothing
+about D-02 was wrong, only its side effect on unrelated horizons for 6
+specific origins.
+
 **Validated before trusting it.** All 4,770 historical prediction rows
 compared against the existing `build3_underfit_corrected` run:
 max difference ~2e-5 (RNN), ~6e-6 (GRU), floating-point noise. h=26's
 own pooled n stayed at exactly 1,590, untouched.
 
-**The 51 new origins, pooled, both architectures:**
+**Raw MAE/MAPE, before vs. after, pooled across all 15 markets:**
+
+| h | | n | MAE | MAPE | vs. naive |
+|---|---|---|---|---|---|
+| 4 | RNN, before | 1590 | 16.72 | 9.30% | +6.97% |
+| 4 | RNN, after | 1647 | 18.50 | 9.34% | +9.68% |
+| 4 | GRU, before | 1590 | 16.33 | 9.24% | +9.12% |
+| 4 | GRU, after | 1647 | 18.18 | 9.29% | +11.23% |
+| 13 | RNN, before | 1590 | 31.76 | 17.50% | +17.07% |
+| 13 | RNN, after | 1647 | 33.47 | 17.32% | +24.53% |
+| 13 | GRU, before | 1590 | 30.45 | 17.06% | +20.50% |
+| 13 | GRU, after | 1647 | 32.90 | 16.98% | +25.80% |
+| 26 | both | 1590 | unchanged | unchanged | unchanged |
+
+MAE rises at both horizons (the new pairs carry the higher 2024 price
+level), MAPE is flat to slightly better, and the margin over naive
+improves by 2-7.5 points at both horizons for both architectures. The
+57 new/rescued pairs are a real improvement, not a regression, but 57
+against 1,590 is a 3.6% addition; treat the shift as directional, not
+as a new headline number on its own.
+
+**The 51 origins that are genuinely new 2024 data, isolated on their
+own, pooled, both architectures:**
 
 | h | n | RNN MAE/MAPE | RNN vs. naive | GRU MAE/MAPE | GRU vs. naive |
 |---|---|---|---|---|---|
