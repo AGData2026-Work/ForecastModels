@@ -2527,16 +2527,20 @@ Average overshoot of fails, one number per zone:
 | North East | 8.39 / 8.85pp | 13.69 / 13.21pp | 18.87 / 18.18pp |
 | South West | 10.36 / 10.32pp | 12.78 / 12.71pp | 20.40 / 19.06pp |
 
-Split by direction (RNN; GRU follows the same pattern):
+Split by direction, both architectures, all three horizons. Each cell
+is (number of fails, average overshoot in pp) as RNN / GRU:
 
-| Zone | h | too high: n, overshoot | too low: n, overshoot |
+| Zone | h | too high (RNN / GRU) | too low (RNN / GRU) |
 |---|---|---|---|
-| North West | 4 | 154, 12.07pp | 214, 7.83pp |
-| North East | 4 | 31, 11.15pp | 23, 4.68pp |
-| South West | 4 | 19, 12.79pp | 31, 8.88pp |
-| North West | 13 | 250, 17.63pp | 320, 15.19pp |
-| North East | 13 | 82, 18.69pp | 96, 9.42pp |
-| South West | 13 | 45, 14.21pp | 85, 12.02pp |
+| North West | 4 | 154, 12.07 / 169, 11.07 | 214, 7.83 / 206, 7.56 |
+| North West | 13 | 250, 17.63 / 254, 17.05 | 320, 15.19 / 314, 14.83 |
+| North West | 26 | 248, 32.16 / 248, 30.36 | 387, 19.58 / 376, 19.34 |
+| North East | 4 | 31, 11.15 / 33, 10.43 | 23, 4.68 / 16, 5.60 |
+| North East | 13 | 82, 18.69 / 73, 18.19 | 96, 9.42 / 87, 9.03 |
+| North East | 26 | 135, 28.92 / 132, 26.17 | 171, 10.94 / 151, 11.20 |
+| South West | 4 | 19, 12.79 / 20, 11.68 | 31, 8.88 / 29, 9.38 |
+| South West | 13 | 45, 14.21 / 46, 13.23 | 85, 12.02 / 77, 12.40 |
+| South West | 26 | 51, 26.00 / 52, 23.24 | 99, 17.52 / 96, 16.80 |
 
 ### National 12% bound
 
@@ -2552,6 +2556,20 @@ Split by direction (RNN; GRU follows the same pattern):
 | North West | 9.41 / 9.56pp | 15.16 / 14.76pp | 23.33 / 22.59pp |
 | North East | 8.67 / 8.45pp | 14.78 / 13.59pp | 20.71 / 19.91pp |
 | South West | 10.16 / 10.09pp | 12.21 / 12.11pp | 18.94 / 18.36pp |
+
+Split by direction at 12%, cells as (fails, overshoot pp) RNN / GRU:
+
+| Zone | h | too high (RNN / GRU) | too low (RNN / GRU) |
+|---|---|---|---|
+| North West | 4 | 102, 13.19 / 104, 12.85 | 144, 6.74 / 130, 6.93 |
+| North West | 13 | 201, 17.51 / 201, 17.00 | 274, 13.42 / 266, 13.07 |
+| North West | 26 | 221, 31.91 / 219, 30.10 | 343, 17.81 / 332, 17.64 |
+| North East | 4 | 68, 11.15 / 78, 10.33 | 81, 6.59 / 73, 6.44 |
+| North East | 13 | 142, 17.60 / 147, 15.58 | 165, 12.35 / 159, 11.75 |
+| North East | 26 | 180, 29.47 / 181, 26.82 | 259, 14.63 / 235, 14.58 |
+| South West | 4 | 16, 12.99 / 15, 13.19 | 26, 8.43 / 26, 8.31 |
+| South West | 13 | 42, 13.15 / 38, 13.80 | 74, 11.68 / 72, 11.22 |
+| South West | 26 | 50, 24.51 / 47, 23.61 | 96, 16.03 / 91, 15.66 |
 
 ### Per market, zone-specific bounds, h=4, North West and South West
 
@@ -2597,9 +2615,15 @@ North East figure.
    the pass rate of every other North West market, both architectures,
    on a full n=110. Unexplained here; worth its own look.
 3. **Failures that overshoot (forecast too high) miss by more than
-   failures that undershoot**, every zone, both horizons checked, both
-   architectures. Most pronounced in North East (18.7pp vs. 9.4pp at 3
-   months).
+   failures that undershoot**, every zone, every horizon, both
+   architectures, under both bound schemes. Most pronounced in North
+   East (18.7pp vs. 9.4pp at 3 months; 28.9pp vs. 10.9pp at 6 months,
+   RNN). Too-low fails outnumber too-high fails in every cell except
+   North East at 1 month (both architectures under zone bounds, GRU
+   only at 12%), so the model under-calls more often but its
+   over-calls are the larger misses.
+   The 6-month too-high overshoot (26 to 32pp) is roughly double the
+   too-low figure; that asymmetry grows with horizon.
 4. **North East fails most narrowly at every horizon** under both bound
    schemes. **North West is worst on both pass rate and overshoot by 6
    months**, the two problems stacking.
