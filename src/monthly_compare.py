@@ -2,6 +2,8 @@
 Scores the monthly GRU per docs/MONTHLY_PROTOCOL.md. Retrains nothing.
 
     python src/monthly_compare.py
+    python src/monthly_compare.py --run outputs/build3_monthly_last/GRU_unconditional \
+        --baselines outputs/monthly_baselines_last
 
 1. Primary, on the monthly grid: monthly GRU vs monthly naive by the D-45 rule
    (DM p < .05 and a margin larger than one seed standard deviation of MAE), plus
@@ -13,6 +15,7 @@ Scores the monthly GRU per docs/MONTHLY_PROTOCOL.md. Retrains nothing.
 """
 from __future__ import annotations
 
+import argparse
 import sys
 from pathlib import Path
 
@@ -32,6 +35,13 @@ def period(ts: pd.Series) -> pd.Series:
 
 
 def main() -> None:
+    global RUN, BASE
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--run", default=str(RUN))
+    ap.add_argument("--baselines", default=str(BASE))
+    a = ap.parse_args()
+    RUN, BASE = Path(a.run), Path(a.baselines)
+    print(f"run {RUN}  baselines {BASE}")
     mp = pd.read_csv(RUN / "predictions_paired.csv", parse_dates=["origin"])
     mf = pd.read_csv(RUN / "forecasts.csv", parse_dates=["origin"])
     bp = pd.read_csv(BASE / "predictions.csv", parse_dates=["origin", "target"])
@@ -55,7 +65,8 @@ def main() -> None:
               f"{mae(sn.actual, sn.seasonal_naive):.2f} vs GRU {mae(sn.actual, sn.GRU):.2f} on its n={len(sn)};  "
               f"FEWS Holt-Winters {mae(s.dropna(subset=['fews_tes']).actual, s.dropna(subset=['fews_tes']).fews_tes):.2f}")
 
-    print("\n== 2. Matched head-to-head with the weekly flagship (scored against the target month's average)")
+    print(f"\n== 2. Matched head-to-head with the weekly flagship (scored against the target month's "
+          f"{'last observed week' if BASE.name.endswith('_last') else 'average'})")
     mt = pd.read_csv(BASE / "matched.csv", parse_dates=["origin", "origin_m"])
     mt = mt.merge(mp[["market", "origin", "h", "GRU"]].rename(columns={"origin": "origin_m", "h": "k", "GRU": "GRU_monthly"}),
                   on=["market", "origin_m", "k"], how="left")

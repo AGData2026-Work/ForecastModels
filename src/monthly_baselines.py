@@ -3,6 +3,8 @@ Baselines on the monthly grid, and the matched comparison with the weekly flagsh
 (monthly-cadence experiment, phase 2). Retrains nothing.
 
     python src/monthly_baselines.py
+    python src/monthly_baselines.py --price-agg last   # on the last-value panel; writes
+                                                       # outputs/monthly_baselines_last/
 
 Baselines, every one point-in-time (fitted only on months up to and including the origin):
   naive           month o's average price
@@ -22,6 +24,7 @@ Writes outputs/monthly_baselines/{predictions.csv, metrics.csv, matched.csv}.
 """
 from __future__ import annotations
 
+import argparse
 import math
 import sys
 from pathlib import Path
@@ -93,11 +96,16 @@ def tes(v: np.ndarray, months: np.ndarray, S0: dict):
 
 
 def main() -> None:
+    global OUT
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--price-agg", choices=["mean", "last"], default="mean")
+    sfx = "" if ap.parse_args().price_agg == "mean" else "_last"
+    OUT = Path(f"outputs/monthly_baselines{sfx}")
     OUT.mkdir(parents=True, exist_ok=True)
-    pm = pd.read_parquet("data/panel_monthly.parquet")
+    pm = pd.read_parquet(f"data/panel_monthly{sfx}.parquet")
     pm["date"] = pd.to_datetime(pm["date"])
     P = pm.pivot(index="date", columns="market", values="price")
-    grid = pd.read_parquet("data/monthly_grid.parquet")
+    grid = pd.read_parquet(f"data/monthly_grid{sfx}.parquet")
     cpi = food_cpi()
 
     rows, n_interp, skipped = [], 0, 0
@@ -158,7 +166,7 @@ def main() -> None:
                   on=["market", "origin_m", "k"], how="inner")
     mt.to_csv(OUT / "matched.csv", index=False)
     print(f"\n== Matched with the weekly flagship (weekly origin in the last 7 days of month o, target week in month o+k): "
-          f"{len(mt)} pairs; scored against the target MONTH's average")
+          f"{len(mt)} pairs; scored against the target MONTH's {'average' if not sfx else 'last observed week'}")
     for k in [1, 3, 6]:
         s = mt[(mt.k == k)].dropna(subset=["seasonal_naive", "fews_tes"]).sort_values(["market", "origin_m"])
         parts = []
