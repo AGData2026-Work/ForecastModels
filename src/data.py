@@ -240,7 +240,8 @@ def _expanding_rank(v: np.ndarray, min_past: int = 24) -> np.ndarray:
 
 
 def attach_fx_summary(p: Panel, fx_path: str | Path, inflation_path: str | Path,
-                      fx_lag_months: int = 1, inflation_lag_months: int = 2) -> None:
+                      fx_lag_months: int = 1, inflation_lag_months: int = 2,
+                      keep: list[str] | None = None) -> None:
     """FX restructuring option 2. Six bounded flat features at each date, computed on
     the monthly national series and then looked up for the latest month that would have
     been published by that date (lags as attach_macro):
@@ -280,6 +281,12 @@ def attach_fx_summary(p: Panel, fx_path: str | Path, inflation_path: str | Path,
     names = ["fx_dep3_rank", "fx_dep6_rank", "fx_dep12_rank", "infl_level_rank",
              "infl_change6_rank", "months_since_deval"]
     assert names == FX_SUMMARY_NAMES
+    if keep:  # ablations: a subset of the six features, in their standard order
+        unknown = set(keep) - set(names)
+        if unknown:
+            raise ValueError(f"unknown fx_summary features {sorted(unknown)}")
+        idx = [i for i, n in enumerate(names) if n in keep]
+        X, names = X[:, idx], [names[i] for i in idx]
     p.fx_summary, p.fx_summary_names = X, names
     p.log["fx_summary"] = {"fx_lag_months": fx_lag_months, "inflation_lag_months": inflation_lag_months,
                            "devaluation_months": [str(m) for m, d in zip(f.index, dev) if d],
@@ -585,7 +592,8 @@ def build_flat(
 def flat_feature_names(horizons: list[int], use_lag52: bool, use_realised: bool,
                        realised_upstream: bool = True,
                        driver_source: str = "realised",
-                       use_fx_summary: bool = False) -> list[str]:
+                       use_fx_summary: bool = False,
+                       fx_summary_names: list[str] | None = None) -> list[str]:
     names = []
     if use_lag52:
         names += [f"lag52_anchor_h{h}" for h in horizons]
@@ -598,7 +606,7 @@ def flat_feature_names(horizons: list[int], use_lag52: bool, use_realised: bool,
                 names.append(f"{prefix}_upstream_ret_h{h}")
             names += [f"{prefix}_rain_mean_h{h}", f"{prefix}_ndvi_mean_h{h}"]
     if use_fx_summary:
-        names += FX_SUMMARY_NAMES
+        names += list(fx_summary_names or FX_SUMMARY_NAMES)
     return names
 
 

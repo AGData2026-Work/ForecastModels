@@ -143,7 +143,8 @@ def main() -> None:
         # FX restructuring option 2: bounded flat summaries, same lag convention as above.
         attach_fx_summary(panel, cfg["data"]["fx_rate_path"], cfg["data"]["inflation_path"],
                           fx_lag_months=cfg["data"].get("fx_lag_months", 1),
-                          inflation_lag_months=cfg["data"].get("inflation_lag_months", 2))
+                          inflation_lag_months=cfg["data"].get("inflation_lag_months", 2),
+                          keep=cfg["features"].get("fx_summary_subset"))
     grid, glog = load_grid(cfg["data"]["baseline_forecasts"], H,
                            drop_targets=cfg["data"]["drop_target_dates"],
                            require_horizons=a.require_horizons)
@@ -357,7 +358,8 @@ def main() -> None:
         sequence_channels=sequence_channel_names(use_macro),
         n_flat_features=n_flat,
         flat_feature_names=flat_feature_names(H, use_lag52, use_realised, realised_upstream,
-                                              driver_source, use_fx_summary),
+                                              driver_source, use_fx_summary,
+                                              panel.fx_summary_names),
         train_markets=train_mkts, scored_markets=scored,
         n_retrain_cuts=len(cuts), retrain_every_weeks=cfg["training"]["retrain_every_weeks"],
         config=cfg, panel_log=panel.log, grid_log=glog,
