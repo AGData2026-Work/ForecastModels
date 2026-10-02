@@ -34,7 +34,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from data import (Scaler, attach_macro, build_grid_windows, sequence_channel_names,
+from data import (Scaler, attach_fx_summary, attach_macro, build_grid_windows, sequence_channel_names,
                   build_training_windows, flat_feature_names, load_grid, load_panel)
 from check_regression import append_run_history
 from metrics import (change_control, diebold_mariano, paired_table, score_long)
@@ -138,6 +138,12 @@ def main() -> None:
         attach_macro(panel, cfg["data"]["fx_rate_path"], cfg["data"]["inflation_path"],
                      fx_lag_months=cfg["data"].get("fx_lag_months", 1),
                      inflation_lag_months=cfg["data"].get("inflation_lag_months", 2))
+    use_fx_summary = bool(cfg["features"].get("fx_summary", False))
+    if use_fx_summary:
+        # FX restructuring option 2: bounded flat summaries, same lag convention as above.
+        attach_fx_summary(panel, cfg["data"]["fx_rate_path"], cfg["data"]["inflation_path"],
+                          fx_lag_months=cfg["data"].get("fx_lag_months", 1),
+                          inflation_lag_months=cfg["data"].get("inflation_lag_months", 2))
     grid, glog = load_grid(cfg["data"]["baseline_forecasts"], H,
                            drop_targets=cfg["data"]["drop_target_dates"],
                            require_horizons=a.require_horizons)
@@ -180,7 +186,7 @@ def main() -> None:
             panel, H, L, origin_max_idx=cut_i - 1, train_market_ids=train_ids,
             use_lag52=use_lag52, use_realised_drivers=use_realised,
             realised_upstream=realised_upstream, driver_source=driver_source,
-            use_macro=use_macro,
+            use_macro=use_macro, use_fx_summary=use_fx_summary,
         )
         if len(Xtr_all) < cfg["training"]["min_train_windows"]:
             skips.append(dict(cut=cut, reason="too_few_training_windows",
@@ -209,7 +215,8 @@ def main() -> None:
         Xte, Fte, yte, mte, sk = build_grid_windows(
             panel, served, H, L, use_lag52=use_lag52, use_realised_drivers=use_realised,
             realised_upstream=realised_upstream, driver_source=driver_source,
-            require_horizons=a.require_horizons, use_macro=use_macro)
+            require_horizons=a.require_horizons, use_macro=use_macro,
+            use_fx_summary=use_fx_summary)
         if len(sk):
             sk = sk.assign(cut=cut)
             skips.extend(sk.to_dict("records"))
@@ -350,7 +357,7 @@ def main() -> None:
         sequence_channels=sequence_channel_names(use_macro),
         n_flat_features=n_flat,
         flat_feature_names=flat_feature_names(H, use_lag52, use_realised, realised_upstream,
-                                              driver_source),
+                                              driver_source, use_fx_summary),
         train_markets=train_mkts, scored_markets=scored,
         n_retrain_cuts=len(cuts), retrain_every_weeks=cfg["training"]["retrain_every_weeks"],
         config=cfg, panel_log=panel.log, grid_log=glog,

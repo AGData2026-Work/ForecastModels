@@ -77,6 +77,10 @@ class Panel:
     # anchors in build_flat and the history needed in build_training_windows.
     season_lag: int = 52
     fx_rate: np.ndarray | None = None        # (T, M), national series broadcast to every column
+    # FX restructuring option 2: bounded national FX/inflation summaries per date,
+    # (T, K), the same for every market; names in fx_summary_names.
+    fx_summary: np.ndarray | None = None
+    fx_summary_names: list | None = None
     inflation_yoy: np.ndarray | None = None  # (T, M), national series broadcast to every column
 
 
@@ -217,6 +221,69 @@ def _national_monthly_point_in_time(source_path: str | Path, sheet: str, date_co
     return vals, {"source": str(source_path), "column": value_col, "lag_months": lag_months,
                   "last_real_month": str(last), "weeks_carried_past_end": int(tail.sum()),
                   "weeks_missing": int(np.isnan(vals).sum())}
+
+
+FX_SUMMARY_NAMES = ["fx_dep3_rank", "fx_dep6_rank", "fx_dep12_rank",
+                    "infl_level_rank", "infl_change6_rank", "months_since_deval"]
+DEVALUATION = np.log(1.10)   # a month in which the naira fell 10% or more
+
+
+def _expanding_rank(v: np.ndarray, min_past: int = 24) -> np.ndarray:
+    """Share of strictly earlier finite values that are <= v[i]. Bounded in [0, 1]
+    and point-in-time; NaN until `min_past` earlier values exist."""
+    out = np.full(len(v), np.nan)
+    for i in range(len(v)):
+        past = v[:i][np.isfinite(v[:i])]
+        if np.isfinite(v[i]) and len(past) >= min_past:
+            out[i] = float(np.mean(past <= v[i]))
+    return out
+
+
+def attach_fx_summary(p: Panel, fx_path: str | Path, inflation_path: str | Path,
+                      fx_lag_months: int = 1, inflation_lag_months: int = 2) -> None:
+    """FX restructuring option 2. Six bounded flat features at each date, computed on
+    the monthly national series and then looked up for the latest month that would have
+    been published by that date (lags as attach_macro):
+      fx_dep{3,6,12}_rank  percentile of the naira's depreciation over the last 3/6/12
+                           months among every earlier month's value (history from 2004)
+      infl_level_rank      percentile of headline inflation YoY among earlier months
+      infl_change6_rank    percentile of its 6-month change
+      months_since_deval   months since the last month with a >= 10% depreciation,
+                           capped at 24 and divided by 24 (1.0 = none in two years)
+    Ranks use strictly earlier values, so a record devaluation reads 1.0 rather than an
+    extrapolated extreme."""
+    fx = pd.read_excel(fx_path).rename(columns={"Months": "date"})
+    fx["date"] = pd.to_datetime(fx["date"])
+    f = fx.set_index("date")["Official Exchange Rate"].sort_index()
+    f.index = f.index.to_period("M")
+    lf = np.log(f)
+    feats = pd.DataFrame(index=f.index)
+    for L in (3, 6, 12):
+        feats[f"fx_dep{L}_rank"] = _expanding_rank(lf.diff(L).to_numpy())
+    dev = (lf.diff() >= DEVALUATION).to_numpy()
+    since = np.full(len(f), np.nan); last = None
+    for i in range(len(f)):
+        if dev[i]:
+            last = i
+        since[i] = 24.0 if last is None else min(i - last, 24)
+    feats["months_since_deval"] = since / 24.0
+    inf = pd.read_excel(inflation_path, sheet_name="Monthly Inflation").rename(columns={"Unnamed: 0": "date"})
+    inf["date"] = pd.to_datetime(inf["date"])
+    y = inf.set_index("date")["Headline Inflation (%)-YoY"].sort_index()
+    y.index = y.index.to_period("M")
+    infl = pd.DataFrame({"infl_level_rank": _expanding_rank(y.to_numpy()),
+                         "infl_change6_rank": _expanding_rank(y.diff(6).to_numpy())}, index=y.index)
+    months = p.dates.to_period("M")
+    fx_rows = feats.reindex(months - fx_lag_months).to_numpy(dtype=float)
+    in_rows = infl.reindex(months - inflation_lag_months).to_numpy(dtype=float)
+    X = np.column_stack([fx_rows[:, :3], in_rows, fx_rows[:, 3:]])
+    names = ["fx_dep3_rank", "fx_dep6_rank", "fx_dep12_rank", "infl_level_rank",
+             "infl_change6_rank", "months_since_deval"]
+    assert names == FX_SUMMARY_NAMES
+    p.fx_summary, p.fx_summary_names = X, names
+    p.log["fx_summary"] = {"fx_lag_months": fx_lag_months, "inflation_lag_months": inflation_lag_months,
+                           "devaluation_months": [str(m) for m, d in zip(f.index, dev) if d],
+                           "dates_with_missing_feature": int((~np.isfinite(X)).any(axis=1).sum())}
 
 
 def attach_macro(p: Panel, fx_path: str | Path, inflation_path: str | Path,
@@ -425,6 +492,7 @@ def build_flat(
     use_lag52: bool, use_realised_drivers: bool,
     realised_upstream: bool = True,
     driver_source: str = "realised",
+    use_fx_summary: bool = False,
 ) -> tuple[np.ndarray, bool]:
     """Non-sequence features. Empty array when both switches are off (Build 1
     unconditional). `driver_source` picks between the CONDITIONAL arm's
@@ -503,6 +571,11 @@ def build_flat(
             vals.append(float(np.mean(rain_fc)) if rain_fc else 0.0)
             vals.append(float(np.mean(ndvi_fc)) if ndvi_fc else 0.0)
 
+    if use_fx_summary:
+        if p.fx_summary is None:
+            raise ValueError("use_fx_summary=True but Panel has no fx_summary (call attach_fx_summary)")
+        vals.extend(float(v) for v in p.fx_summary[i])
+
     arr = np.asarray(vals, dtype=float)
     if arr.size and not np.isfinite(arr).all():
         return np.empty(0), False
@@ -511,7 +584,8 @@ def build_flat(
 
 def flat_feature_names(horizons: list[int], use_lag52: bool, use_realised: bool,
                        realised_upstream: bool = True,
-                       driver_source: str = "realised") -> list[str]:
+                       driver_source: str = "realised",
+                       use_fx_summary: bool = False) -> list[str]:
     names = []
     if use_lag52:
         names += [f"lag52_anchor_h{h}" for h in horizons]
@@ -523,6 +597,8 @@ def flat_feature_names(horizons: list[int], use_lag52: bool, use_realised: bool,
             if realised_upstream:
                 names.append(f"{prefix}_upstream_ret_h{h}")
             names += [f"{prefix}_rain_mean_h{h}", f"{prefix}_ndvi_mean_h{h}"]
+    if use_fx_summary:
+        names += FX_SUMMARY_NAMES
     return names
 
 
@@ -534,6 +610,7 @@ def build_training_windows(
     realised_upstream: bool = True,
     driver_source: str = "realised",
     use_macro: bool = False,
+    use_fx_summary: bool = False,
 ):
     """Every usable (market, week) window whose LAST TARGET lands at or before
     origin_max_idx. Nothing at or after the forecast cut can enter."""
@@ -554,7 +631,7 @@ def build_training_windows(
             if not ok:
                 continue
             F, ok = build_flat(p, i, j, horizons, use_lag52, use_realised_drivers,
-                              realised_upstream, driver_source)
+                              realised_upstream, driver_source, use_fx_summary)
             if not ok:
                 continue
             Xs.append(X)
@@ -576,6 +653,7 @@ def build_grid_windows(
     driver_source: str = "realised",
     require_horizons: list[int] | None = None,
     use_macro: bool = False,
+    use_fx_summary: bool = False,
 ):
     """Windows for scored (market, origin) pairs. Origin price and actuals come
     from the baseline file so the paired comparison uses identical targets.
@@ -602,7 +680,7 @@ def build_grid_windows(
             skipped.append((r["market"], r["origin"], "sequence_incomplete"))
             continue
         F, ok = build_flat(p, i, j, horizons, use_lag52, use_realised_drivers,
-                          realised_upstream, driver_source)
+                          realised_upstream, driver_source, use_fx_summary)
         if not ok:
             skipped.append((r["market"], r["origin"], "flat_incomplete"))
             continue
