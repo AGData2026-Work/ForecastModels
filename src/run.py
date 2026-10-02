@@ -144,7 +144,9 @@ def main() -> None:
         attach_fx_summary(panel, cfg["data"]["fx_rate_path"], cfg["data"]["inflation_path"],
                           fx_lag_months=cfg["data"].get("fx_lag_months", 1),
                           inflation_lag_months=cfg["data"].get("inflation_lag_months", 2),
-                          keep=cfg["features"].get("fx_summary_subset"))
+                          keep=cfg["features"].get("fx_summary_subset"),
+                          fx_daily_path=cfg["data"].get("fx_daily_path"),
+                          origin_is_month_end=(freq == "MS"))
     grid, glog = load_grid(cfg["data"]["baseline_forecasts"], H,
                            drop_targets=cfg["data"]["drop_target_dates"],
                            require_horizons=a.require_horizons)

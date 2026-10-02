@@ -239,9 +239,63 @@ def _expanding_rank(v: np.ndarray, min_past: int = 24) -> np.ndarray:
     return out
 
 
+DAILY_SMOOTH_DAYS = 5      # trailing business-day median of the CBN daily rate
+DAILY_MIN_PAST = 500       # ~24 months of business days before a rank is defined
+
+
+def _fx_daily_features(daily_path: str | Path, cutoffs: pd.DatetimeIndex) -> tuple[np.ndarray, dict]:
+    """The four FX summary features from CBN's DAILY official rate, read at each cutoff day.
+
+    s = trailing DAILY_SMOOTH_DAYS business-day median of the central rate. The median is
+    there because the raw series has one-day typos (1376.80 on 2003-12-09, 74.52 on
+    2007-08-28, 66.09 on 2008-08-01) and +/-15-20% day-to-day reversals in 2023-10..2024-05;
+    a single reading should not fire a devaluation. On every business day d:
+      dep_L(d)  = log(s_d / s at the last business day on or before d - L months)
+      event(d)  = dep_1(d) >= log(1.10)   (the daily analogue of a >= 10% month)
+    fx_dep{L}_rank at cutoff c: share of business days strictly before c's business day
+    whose dep_L is <= dep_L(c) (NaN until DAILY_MIN_PAST earlier values exist).
+    months_since_deval: calendar days since the last event day <= c, / 30.4375, capped at
+    24, / 24. Features use only rates dated on or before the cutoff."""
+    raw = pd.read_csv(daily_path, parse_dates=["date"]).sort_values("date").drop_duplicates("date")
+    r = raw.set_index("date")["centralrate"].astype(float)
+    s = r.rolling(DAILY_SMOOTH_DAYS, min_periods=3).median()
+    ls = np.log(s)
+    days = s.index
+    dep = {}
+    for L in (1, 3, 6, 12):
+        back = days - pd.DateOffset(months=L)
+        j = days.searchsorted(back, side="right") - 1
+        prev = np.where(j >= 0, ls.to_numpy()[np.clip(j, 0, None)], np.nan)
+        dep[L] = ls.to_numpy() - prev
+    ranks = {L: _expanding_rank(dep[L], min_past=DAILY_MIN_PAST) for L in (3, 6, 12)}
+    event = dep[1] >= DEVALUATION
+    ci = days.searchsorted(cutoffs, side="right") - 1          # last business day <= cutoff
+    X = np.full((len(cutoffs), 4), np.nan)
+    ev_days = days[event]
+    for row, (c, i) in enumerate(zip(cutoffs, ci)):
+        if i < 0:
+            continue
+        X[row, 0], X[row, 1], X[row, 2] = ranks[3][i], ranks[6][i], ranks[12][i]
+        k = ev_days.searchsorted(days[i], side="right") - 1
+        X[row, 3] = 1.0 if k < 0 else min((days[i] - ev_days[k]).days / 30.4375, 24.0) / 24.0
+    spikes = r[(r / s - 1).abs() > 0.20]
+    stale = (cutoffs - days[np.clip(ci, 0, None)]).days
+    log = {"source": str(daily_path), "rate": "centralrate", "business_days": int(len(days)),
+           "first_day": str(days[0].date()), "last_day": str(days[-1].date()),
+           "smooth_days": DAILY_SMOOTH_DAYS, "rank_min_past_days": DAILY_MIN_PAST,
+           "raw_days_more_than_20pct_from_median": {str(k.date()): float(v) for k, v in spikes.items()},
+           "event_days": int(event.sum()),
+           "event_episodes_first_day": [str(d.date()) for d, e, pe in
+                                        zip(days, event, np.r_[False, event[:-1]]) if e and not pe],
+           "cutoff_minus_rate_day_days_max": int(stale.max()),
+           "cutoffs_past_last_day": int((cutoffs > days[-1]).sum())}
+    return X, log
+
+
 def attach_fx_summary(p: Panel, fx_path: str | Path, inflation_path: str | Path,
                       fx_lag_months: int = 1, inflation_lag_months: int = 2,
-                      keep: list[str] | None = None) -> None:
+                      keep: list[str] | None = None, fx_daily_path: str | Path | None = None,
+                      origin_is_month_end: bool = False) -> None:
     """FX restructuring option 2. Six bounded flat features at each date, computed on
     the monthly national series and then looked up for the latest month that would have
     been published by that date (lags as attach_macro):
@@ -277,6 +331,14 @@ def attach_fx_summary(p: Panel, fx_path: str | Path, inflation_path: str | Path,
     months = p.dates.to_period("M")
     fx_rows = feats.reindex(months - fx_lag_months).to_numpy(dtype=float)
     in_rows = infl.reindex(months - inflation_lag_months).to_numpy(dtype=float)
+    daily_log = None
+    if fx_daily_path:
+        # Same four FX features from the daily rate, read at the forecast date itself instead
+        # of a month-lagged monthly average: the day before a weekly origin, the last day of
+        # month o for a month-end origin. fx_lag_months no longer applies to FX.
+        cut = (p.dates.to_period("M").to_timestamp(how="end").normalize() if origin_is_month_end
+               else p.dates - pd.Timedelta(days=1))
+        fx_rows, daily_log = _fx_daily_features(fx_daily_path, cut)
     X = np.column_stack([fx_rows[:, :3], in_rows, fx_rows[:, 3:]])
     names = ["fx_dep3_rank", "fx_dep6_rank", "fx_dep12_rank", "infl_level_rank",
              "infl_change6_rank", "months_since_deval"]
@@ -288,7 +350,9 @@ def attach_fx_summary(p: Panel, fx_path: str | Path, inflation_path: str | Path,
         idx = [i for i, n in enumerate(names) if n in keep]
         X, names = X[:, idx], [names[i] for i in idx]
     p.fx_summary, p.fx_summary_names = X, names
-    p.log["fx_summary"] = {"fx_lag_months": fx_lag_months, "inflation_lag_months": inflation_lag_months,
+    p.log["fx_summary"] = {"fx_lag_months": None if fx_daily_path else fx_lag_months,
+                           "fx_daily": daily_log,
+                           "inflation_lag_months": inflation_lag_months,
                            "devaluation_months": [str(m) for m, d in zip(f.index, dev) if d],
                            "dates_with_missing_feature": int((~np.isfinite(X)).any(axis=1).sum())}
 
