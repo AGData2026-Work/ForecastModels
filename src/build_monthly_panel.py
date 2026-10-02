@@ -16,9 +16,10 @@ Outputs:
 
 Conventions (why each exists):
 - A month's price is the mean of that month's non-missing weekly prices, proxy-filled
-  weeks included, because the flagship trains on the same weekly values. A month needs
-  at least MIN_WEEKS observed weeks, otherwise it is NaN: one stray week is too thin to
-  stand for a month. Counts of weeks and proxy weeks are kept per row.
+  weeks included, because the flagship trains on the same weekly values. Owner decision
+  2026-10-02: a single observed week is enough (MIN_WEEKS = 1). Nine months rest on one
+  week, all in 2012-14 and outside the grid; `n_price_weeks` and `n_proxy_weeks` are kept
+  per row so they can be found.
 - Diesel, upstream price, rainfall and NDVI are monthly means of the weekly values, so
   units match the weekly panel exactly; the share of interpolated weeks is kept.
 - Fourier terms are recomputed on month of year (period 12), the monthly analogue of
@@ -38,7 +39,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-MIN_WEEKS = 2
+MIN_WEEKS = 1
 HORIZONS = [1, 3, 6]
 
 

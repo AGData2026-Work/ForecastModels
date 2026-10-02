@@ -17,8 +17,9 @@ document. Phase 4 (post-September-2024 data, live forecasts) is on hold by owner
 
 - `data/panel_monthly.parquet`: 16 markets x 149 months (2012-05 to 2024-09), 2,384 rows.
   A month's price is the mean of its non-missing weekly prices, proxy-filled weeks
-  included because the flagship trains on them too; at least 2 observed weeks are
-  needed, otherwise NaN (9 months set NaN on this rule). Every other input is the
+  included because the flagship trains on them too. One observed week is enough (owner
+  decision, 2026-10-02): 9 months, all in 2012-14 and outside the grid, rest on a single
+  week, 4 of them a proxy-filled week; `n_price_weeks` flags them. Every other input is the
   monthly mean of the weekly values, so units match. Fourier terms use month of year.
   September 2024 has 3 weekly observations in every market.
 - `data/monthly_grid.parquet`: the monthly evaluation grid, built once and frozen like
@@ -83,8 +84,8 @@ Full monthly grid, MAE NGN/kg / MAPE (each baseline on the pairs where it exists
 |---|---|---|---|
 | monthly naive (n=1,477) | 16.37 / 8.6% | 36.16 / 17.5% | 54.95 / 22.8% |
 | seasonal naive (n=1,131) | 17.81 / 8.6% | 36.68 / 16.0% | 60.17 / 21.9% |
-| FEWS NET Holt-Winters (n=1,458) | 16.45 / 9.0% | 34.17 / 17.7% | 50.56 / 24.4% |
-| FEWS NET decomposition (n=1,458) | 65.02 / 37.6% | 77.31 / 41.6% | 100.13 / 47.3% |
+| FEWS NET Holt-Winters (n=1,464) | 16.27 / 8.9% | 33.96 / 17.5% | 50.18 / 24.2% |
+| FEWS NET decomposition (n=1,464) | 64.80 / 37.3% | 76.94 / 41.1% | 99.51 / 46.6% |
 
 Matched pairs, scored against the target month's average:
 
@@ -94,7 +95,7 @@ Matched pairs, scored against the target month's average:
 | weekly corrected blend | 15.62 / 7.6% | 33.02 / 16.4% | 45.90 / 19.0% |
 | monthly naive | 19.91 / 8.9% | 43.10 / 20.0% | 57.30 / 19.9% |
 | seasonal naive | 19.63 / 9.3% | 37.82 / 18.0% | 58.27 / 21.8% |
-| FEWS NET Holt-Winters | 19.15 / 9.1% | 39.59 / 19.4% | 53.34 / 23.1% |
+| FEWS NET Holt-Winters | 19.12 / 9.1% | 39.36 / 19.3% | 53.08 / 22.9% |
 
 The monthly GRU's target is the first row: the weekly flagship already beats every
 monthly baseline on matched pairs by 17 to 26% MAE.
