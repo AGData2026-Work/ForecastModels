@@ -89,6 +89,13 @@ def main() -> None:
                          "must have a real actual for an origin to be scored; others may "
                          "be absent (their target hasn't happened yet). Omit for today's "
                          "behaviour: every horizon required, unchanged.")
+    ap.add_argument("--model-horizons", type=int, nargs="+", default=None,
+                    help="train and score a model for only these horizons (a subset of "
+                         "protocol.horizons), e.g. one specialised model per horizon. The "
+                         "evaluation grid is still loaded with every protocol horizon, so "
+                         "the scored pairs are identical to a full run's. Training windows "
+                         "then only need these horizons' targets to exist, so each cut can "
+                         "train on more recent weeks. Omit for today's behaviour.")
     a = ap.parse_args()
     run_start = time.monotonic()
 
@@ -101,7 +108,12 @@ def main() -> None:
         torch.set_num_threads(a.threads)
     dev = torch.device(a.device)
 
-    H = cfg["protocol"]["horizons"]
+    GH = cfg["protocol"]["horizons"]  # grid horizons: which pairs are scored
+    H = GH
+    if a.model_horizons:
+        if set(a.model_horizons) - set(GH):
+            raise SystemExit(f"--model-horizons {a.model_horizons} not a subset of {GH}")
+        H = sorted(a.model_horizons)
     max_h = max(H)
     L = cfg["model"]["lookback"]
     use_lag52 = bool(cfg["features"]["explicit_lag52"])
@@ -114,6 +126,8 @@ def main() -> None:
         seeds = seeds[:1]
 
     default_out = f"outputs/{cfg['build']['name']}/{a.kind}_{a.convention}"
+    if H != GH:
+        default_out += "_h" + "_".join(str(h) for h in H)
     if a.smoke:
         default_out += "_smoke"
     out = Path(a.out or default_out)
@@ -124,7 +138,7 @@ def main() -> None:
                        rainfall_scheme=cfg["features"]["climate_scheme"],
                        fourier_k=cfg["features"]["fourier_k"],
                        interp_limit=cfg["data"]["price_interp_limit_weeks"])
-    grid, glog = load_grid(cfg["data"]["baseline_forecasts"], H,
+    grid, glog = load_grid(cfg["data"]["baseline_forecasts"], GH,
                            drop_targets=cfg["data"]["drop_target_dates"],
                            require_horizons=a.require_horizons)
 
@@ -319,8 +333,11 @@ def main() -> None:
     score_long(fc.rename(columns={"pred": a.kind}), [a.kind], ["seed", "h"]).to_csv(
         out / "seed_variance.csv", index=False)
 
-    cc = change_control(paired, cfg["protocol"]["gate_horizons"],
-                        cfg["protocol"]["gate_threshold_pct"])
+    if set(cfg["protocol"]["gate_horizons"]) <= set(H):
+        cc = change_control(paired, cfg["protocol"]["gate_horizons"],
+                            cfg["protocol"]["gate_threshold_pct"])
+    else:
+        cc = {"verdict": f"n/a: model trained for horizons {H} only, not every gate horizon"}
     (out / "change_control.json").write_text(json.dumps(jsonable(cc), indent=2))
 
     n_flat = int(Ftr.shape[1])
@@ -329,7 +346,7 @@ def main() -> None:
         build=cfg["build"]["name"], build_note=cfg["build"]["note"],
         kind=a.kind, convention=a.convention, smoke=a.smoke,
         wall_seconds=round(wall_seconds, 1),
-        horizons=H, gate_horizons=cfg["protocol"]["gate_horizons"],
+        horizons=H, grid_horizons=GH, gate_horizons=cfg["protocol"]["gate_horizons"],
         lookback=L, hidden=hidden, seeds=seeds, n_params=int(net.n_params()),
         param_breakdown=net.param_breakdown(),
         sequence_channels=SEQ_BASE_CHANNELS,
