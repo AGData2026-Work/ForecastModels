@@ -60,6 +60,10 @@ class Panel:
     fourier: np.ndarray        # (T, 4)
     has_upstream: np.ndarray   # (M,) bool
     log: dict
+    # Steps per seasonal cycle: 52 on the weekly panel (the default, unchanged),
+    # 12 on the monthly panel (monthly-cadence experiment). Drives the lag
+    # anchors in build_flat and the history needed in build_training_windows.
+    season_lag: int = 52
 
 
 def validate_panel(p: "Panel") -> None:
@@ -104,16 +108,29 @@ def load_panel(
     rainfall_scheme: str = "inverse_distance",
     fourier_k: int = 2,
     interp_limit: int = 13,
+    frequency: str = "W",
 ) -> Panel:
+    """`frequency` "W" (default: the weekly panel, behaviour unchanged) or "MS"
+    (the monthly panel, month-start dates). `interp_limit` is in steps of that
+    frequency."""
     df = pd.read_parquet(path)
     dates = pd.DatetimeIndex(sorted(df["date"].unique()))
     markets = sorted(df["market"].unique())
     pos = {t: i for i, t in enumerate(dates)}
     midx = {m: j for j, m in enumerate(markets)}
 
-    step = pd.Series(np.diff(dates).astype("timedelta64[D]").astype(int))
-    if not (step == 7).all():
-        raise ValueError(f"panel date index is not a clean weekly grid: {step.unique()}")
+    if frequency == "W":
+        step = pd.Series(np.diff(dates).astype("timedelta64[D]").astype(int))
+        if not (step == 7).all():
+            raise ValueError(f"panel date index is not a clean weekly grid: {step.unique()}")
+        season_lag = 52
+    elif frequency == "MS":
+        expected = pd.date_range(dates[0], dates[-1], freq="MS")
+        if len(expected) != len(dates) or not (expected == dates).all():
+            raise ValueError("panel date index is not a clean month-start grid")
+        season_lag = 12
+    else:
+        raise ValueError(f"unknown frequency {frequency!r}")
 
     def grid(col: str) -> np.ndarray:
         return (df.pivot(index="date", columns="market", values=col)
@@ -141,6 +158,8 @@ def load_panel(
 
     log = {
         "panel_path": str(path),
+        "frequency": frequency,
+        "season_lag": season_lag,
         "n_weeks": len(dates),
         "n_markets": len(markets),
         "first_week": str(dates[0].date()),
@@ -156,7 +175,7 @@ def load_panel(
         "root_markets": [m for m, ok in zip(markets, has_up) if not ok],
     }
     panel = Panel(dates, markets, pos, midx, price, filled, diesel, upstream,
-                  rain, nd, fou, has_up, log)
+                  rain, nd, fou, has_up, log, season_lag=season_lag)
     validate_panel(panel)
     return panel
 
@@ -198,6 +217,13 @@ def load_grid(
                         values=["actual", "panel_fe", "naive"], aggfunc="first")
     piv.columns = [f"{a}_h{h}" for a, h in piv.columns]
     piv = piv.reset_index()
+    # pivot_table drops a value column that is entirely NaN (the monthly grid has no
+    # panel_fe forecasts); restore it as NaN so downstream code sees the same columns.
+    # No effect on the weekly grid, where every column has values.
+    for v in ("actual", "panel_fe", "naive"):
+        for h in horizons:
+            if f"{v}_h{h}" not in piv.columns:
+                piv[f"{v}_h{h}"] = np.nan
 
     need = require_horizons if require_horizons is not None else horizons
     complete = piv[[f"actual_h{h}" for h in need]].notna().all(axis=1)
@@ -354,15 +380,17 @@ def build_flat(
     if use_lag52:
         # Anchor for each horizon: the price in the SAME CALENDAR WEEK one year
         # before the target. t+h-52 <= t whenever h <= 52, so this is always
-        # observed at the origin -- no look-ahead.
+        # observed at the origin -- no look-ahead. S = p.season_lag (52 weekly,
+        # 12 monthly: the same calendar month one year before the target).
+        S = p.season_lag
         for h in horizons:
-            a = i + h - 52
+            a = i + h - S
             if a < 0 or not np.isfinite(p.price[a, j]) or p.price[a, j] <= 0:
                 return np.empty(0), False
             vals.append(float(np.log(p.price[a, j]) - np.log(p0)))
         # What the same window did last year: log(P[t+h-52]) - log(P[t-52]).
         for h in horizons:
-            a, b = i + h - 52, i - 52
+            a, b = i + h - S, i - S
             if b < 0 or not np.isfinite(p.price[a, j]) or not np.isfinite(p.price[b, j]):
                 return np.empty(0), False
             if p.price[a, j] <= 0 or p.price[b, j] <= 0:
@@ -451,7 +479,7 @@ def build_training_windows(
     """Every usable (market, week) window whose LAST TARGET lands at or before
     origin_max_idx. Nothing at or after the forecast cut can enter."""
     max_h = max(horizons)
-    lo = max(lookback - 1, 52) if use_lag52 else lookback - 1
+    lo = max(lookback - 1, p.season_lag) if use_lag52 else lookback - 1
     if origin_min_idx is not None:
         lo = max(lo, origin_min_idx)
     Xs, Fs, ys, meta = [], [], [], []

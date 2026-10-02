@@ -120,10 +120,15 @@ def main() -> None:
     out.mkdir(parents=True, exist_ok=True)
 
     # ---------------- data ----------------
+    # Monthly-cadence experiment: data.frequency "MS" reads the monthly panel and
+    # treats every *_weeks setting below as a number of steps (months). Weekly is
+    # the default and behaves exactly as before.
+    freq = cfg["data"].get("frequency", "W")
     panel = load_panel(cfg["data"]["panel"],
                        rainfall_scheme=cfg["features"]["climate_scheme"],
                        fourier_k=cfg["features"]["fourier_k"],
-                       interp_limit=cfg["data"]["price_interp_limit_weeks"])
+                       interp_limit=cfg["data"]["price_interp_limit_weeks"],
+                       frequency=freq)
     grid, glog = load_grid(cfg["data"]["baseline_forecasts"], H,
                            drop_targets=cfg["data"]["drop_target_dates"],
                            require_horizons=a.require_horizons)
@@ -135,7 +140,7 @@ def main() -> None:
         train_mkts = scored
     train_ids = [panel.midx[m] for m in train_mkts]
 
-    cuts = retrain_cuts(grid["origin"], cfg["training"]["retrain_every_weeks"])
+    cuts = retrain_cuts(grid["origin"], cfg["training"]["retrain_every_weeks"], freq)
     grid = grid.assign(cut=assign_to_cuts(grid, cuts))
     if a.smoke:
         keep_cuts = sorted(grid["cut"].unique())[:3]
@@ -174,7 +179,7 @@ def main() -> None:
 
         tr_i, va_i, slog = chronological_split(
             mtr_all, cfg["training"]["val_fraction"],
-            cfg["training"]["purge_weeks"], cfg["training"]["min_train_windows"])
+            cfg["training"]["purge_weeks"], cfg["training"]["min_train_windows"], freq)
         slog.update(cut=cut)
         splits.append(slog)
 

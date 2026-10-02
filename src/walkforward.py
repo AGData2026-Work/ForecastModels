@@ -23,13 +23,19 @@ import numpy as np
 import pandas as pd
 
 
-def retrain_cuts(origins: pd.Series, every_weeks: int) -> list[pd.Timestamp]:
-    """Refit dates spanning the origin range, spaced `every_weeks` apart."""
+def _step(n: int, frequency: str):
+    """n steps of the panel frequency: weeks ("W", the default) or months ("MS")."""
+    return pd.Timedelta(weeks=n) if frequency == "W" else pd.DateOffset(months=n)
+
+
+def retrain_cuts(origins: pd.Series, every_weeks: int, frequency: str = "W") -> list[pd.Timestamp]:
+    """Refit dates spanning the origin range, spaced `every_weeks` apart (steps of
+    `frequency`, so months on the monthly panel)."""
     o = pd.DatetimeIndex(sorted(pd.unique(pd.to_datetime(origins))))
     cuts, cur = [], o[0]
     while cur <= o[-1]:
         cuts.append(cur)
-        cur = cur + pd.Timedelta(weeks=every_weeks)
+        cur = cur + _step(every_weeks, frequency)
     return cuts
 
 
@@ -43,7 +49,8 @@ def assign_to_cuts(grid: pd.DataFrame, cuts: list[pd.Timestamp]) -> pd.Series:
 
 
 def chronological_split(
-    meta: pd.DataFrame, val_frac: float, purge_weeks: int, min_train: int
+    meta: pd.DataFrame, val_frac: float, purge_weeks: int, min_train: int,
+    frequency: str = "W",
 ) -> tuple[np.ndarray, np.ndarray, dict]:
     """Split training windows by origin date, oldest to newest.
 
@@ -64,7 +71,7 @@ def chronological_split(
     if purge_weeks > 0 and len(va_idx):
         first_val = pd.Timestamp(meta["origin"].values[va_idx[0]])
         for pw in (purge_weeks, purge_weeks // 2, 0):
-            cutoff = first_val - pd.Timedelta(weeks=pw)
+            cutoff = first_val - _step(pw, frequency)
             keep = tr_idx[pd.DatetimeIndex(meta["origin"].values[tr_idx]) < cutoff]
             if len(keep) >= min_train or pw == 0:
                 tr_idx = keep
