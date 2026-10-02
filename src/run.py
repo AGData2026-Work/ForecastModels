@@ -34,7 +34,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from data import (Scaler, SEQ_BASE_CHANNELS, build_grid_windows,
+from data import (Scaler, attach_macro, build_grid_windows, sequence_channel_names,
                   build_training_windows, flat_feature_names, load_grid, load_panel)
 from check_regression import append_run_history
 from metrics import (change_control, diebold_mariano, paired_table, score_long)
@@ -124,6 +124,9 @@ def main() -> None:
                        rainfall_scheme=cfg["features"]["climate_scheme"],
                        fourier_k=cfg["features"]["fourier_k"],
                        interp_limit=cfg["data"]["price_interp_limit_weeks"])
+    use_macro = bool(cfg["features"].get("use_macro", False))
+    if use_macro:
+        attach_macro(panel, cfg["data"]["fx_rate_path"], cfg["data"]["inflation_path"])
     grid, glog = load_grid(cfg["data"]["baseline_forecasts"], H,
                            drop_targets=cfg["data"]["drop_target_dates"],
                            require_horizons=a.require_horizons)
@@ -166,6 +169,7 @@ def main() -> None:
             panel, H, L, origin_max_idx=cut_i - 1, train_market_ids=train_ids,
             use_lag52=use_lag52, use_realised_drivers=use_realised,
             realised_upstream=realised_upstream, driver_source=driver_source,
+            use_macro=use_macro,
         )
         if len(Xtr_all) < cfg["training"]["min_train_windows"]:
             skips.append(dict(cut=cut, reason="too_few_training_windows",
@@ -194,7 +198,7 @@ def main() -> None:
         Xte, Fte, yte, mte, sk = build_grid_windows(
             panel, served, H, L, use_lag52=use_lag52, use_realised_drivers=use_realised,
             realised_upstream=realised_upstream, driver_source=driver_source,
-            require_horizons=a.require_horizons)
+            require_horizons=a.require_horizons, use_macro=use_macro)
         if len(sk):
             sk = sk.assign(cut=cut)
             skips.extend(sk.to_dict("records"))
@@ -332,7 +336,7 @@ def main() -> None:
         horizons=H, gate_horizons=cfg["protocol"]["gate_horizons"],
         lookback=L, hidden=hidden, seeds=seeds, n_params=int(net.n_params()),
         param_breakdown=net.param_breakdown(),
-        sequence_channels=SEQ_BASE_CHANNELS,
+        sequence_channels=sequence_channel_names(use_macro),
         n_flat_features=n_flat,
         flat_feature_names=flat_feature_names(H, use_lag52, use_realised, realised_upstream,
                                               driver_source),
