@@ -724,7 +724,12 @@ class Scaler:
         self.seq_mu = X.reshape(-1, X.shape[-1]).mean(0)
         self.seq_sd = X.reshape(-1, X.shape[-1]).std(0) + 1e-8
         if F.shape[1]:
-            self.flat_mu, self.flat_sd = F.mean(0), F.std(0) + 1e-8
+            # A flat feature that is constant across the training rows (e.g. "months
+            # since the last devaluation" before 2016) would otherwise be divided by
+            # ~1e-8 and explode the first time it moves. Leave such a feature unscaled
+            # (sd 1). Never triggers for the flagship's features, which all vary.
+            sd = F.std(0)
+            self.flat_mu, self.flat_sd = F.mean(0), np.where(sd < 1e-6, 1.0, sd) + 1e-8
         if y is not None:
             self.y_mu, self.y_sd = y.mean(0), y.std(0) + 1e-8
         return self
