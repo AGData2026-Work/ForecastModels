@@ -41,6 +41,18 @@ SEQ_BASE_CHANNELS = [
     "upstream_mask",
 ]
 
+# Appended after SEQ_BASE_CHANNELS only when build_sequence(..., use_macro=True).
+# Ported from afex-multicommodity D-53 for the FEWSNET FX test (D-60 follow-up):
+# national official FX rate (log-ratio to origin) and headline inflation YoY.
+MACRO_CHANNELS = [
+    "rel_log_fx_rate",
+    "inflation_yoy",
+]
+
+
+def sequence_channel_names(use_macro: bool = False) -> list[str]:
+    return SEQ_BASE_CHANNELS + (MACRO_CHANNELS if use_macro else [])
+
 
 # ---------------------------------------------------------------------------
 # panel
@@ -64,6 +76,8 @@ class Panel:
     # 12 on the monthly panel (monthly-cadence experiment). Drives the lag
     # anchors in build_flat and the history needed in build_training_windows.
     season_lag: int = 52
+    fx_rate: np.ndarray | None = None        # (T, M), national series broadcast to every column
+    inflation_yoy: np.ndarray | None = None  # (T, M), national series broadcast to every column
 
 
 def validate_panel(p: "Panel") -> None:
@@ -178,6 +192,44 @@ def load_panel(
                   rain, nd, fou, has_up, log, season_lag=season_lag)
     validate_panel(panel)
     return panel
+
+
+def _national_monthly_point_in_time(source_path: str | Path, sheet: str, date_col: str,
+                                    value_col: str, target_dates: pd.DatetimeIndex,
+                                    lag_months: int) -> tuple[np.ndarray, dict]:
+    """One national monthly series on the weekly grid, POINT-IN-TIME: a week
+    in calendar month m gets the value for month m - lag_months, the latest
+    reading that would actually have been published by then. The AFEX
+    version (afex_data._national_monthly_series) gave every week its own
+    month's value, which uses a monthly average or a release that is not
+    yet out. Never interpolated; weeks before the first available reading
+    are NaN."""
+    raw = pd.read_excel(source_path, sheet_name=sheet).rename(columns={date_col: "date"})
+    raw["date"] = pd.to_datetime(raw["date"])
+    s = raw.drop_duplicates("date").set_index("date")[value_col].sort_index()
+    s.index = s.index.to_period("M")
+    wk = target_dates.to_period("M") - lag_months
+    vals = s.reindex(wk).to_numpy(dtype=float)
+    # carry the last published reading forward past the end of the file
+    last = s.index.max()
+    tail = wk > last
+    vals[tail] = float(s.loc[last])
+    return vals, {"source": str(source_path), "column": value_col, "lag_months": lag_months,
+                  "last_real_month": str(last), "weeks_carried_past_end": int(tail.sum()),
+                  "weeks_missing": int(np.isnan(vals).sum())}
+
+
+def attach_macro(p: Panel, fx_path: str | Path, inflation_path: str | Path,
+                 fx_lag_months: int = 1, inflation_lag_months: int = 2) -> None:
+    fx, fx_log = _national_monthly_point_in_time(fx_path, "Sheet1", "Months",
+                                                 "Official Exchange Rate", p.dates, fx_lag_months)
+    inf, inf_log = _national_monthly_point_in_time(inflation_path, "Monthly Inflation", "Unnamed: 0",
+                                                   "Headline Inflation (%)-YoY", p.dates,
+                                                   inflation_lag_months)
+    M = len(p.markets)
+    p.fx_rate = np.repeat(fx[:, None], M, axis=1)
+    p.inflation_yoy = np.repeat(inf[:, None], M, axis=1)
+    p.log["macro"] = {"fx_rate": fx_log, "inflation_yoy": inf_log}
 
 
 # ---------------------------------------------------------------------------
@@ -324,7 +376,7 @@ def upstream_forecast_seasonal_naive(series: np.ndarray, target_idx: int) -> flo
 
 
 def build_sequence(
-    p: Panel, i: int, j: int, lookback: int
+    p: Panel, i: int, j: int, lookback: int, use_macro: bool = False
 ) -> tuple[np.ndarray, bool]:
     """(lookback, C) channel block for origin index i, market j. Window ends AT i."""
     if i - lookback + 1 < 0:
@@ -355,6 +407,12 @@ def build_sequence(
     for k in range(p.fourier.shape[1]):
         chan.append(p.fourier[sl, k])
     chan.append(np.full(lookback, 1.0 if up_ok else 0.0))
+    if use_macro:
+        if p.fx_rate is None or p.inflation_yoy is None:
+            raise ValueError("use_macro=True but Panel has no fx_rate/inflation_yoy "
+                             "(call attach_macro first)")
+        chan.append(_safe_log_ratio(p.fx_rate[sl, j], np.full(lookback, p.fx_rate[i, j])))
+        chan.append(p.inflation_yoy[sl, j])
 
     X = np.column_stack(chan)
     if not np.isfinite(X).all():
@@ -475,6 +533,7 @@ def build_training_windows(
     origin_min_idx: int | None = None,
     realised_upstream: bool = True,
     driver_source: str = "realised",
+    use_macro: bool = False,
 ):
     """Every usable (market, week) window whose LAST TARGET lands at or before
     origin_max_idx. Nothing at or after the forecast cut can enter."""
@@ -491,7 +550,7 @@ def build_training_windows(
             tgt = p.price[[i + h for h in horizons], j]
             if not np.isfinite(tgt).all() or (tgt <= 0).any():
                 continue
-            X, ok = build_sequence(p, i, j, lookback)
+            X, ok = build_sequence(p, i, j, lookback, use_macro=use_macro)
             if not ok:
                 continue
             F, ok = build_flat(p, i, j, horizons, use_lag52, use_realised_drivers,
@@ -516,6 +575,7 @@ def build_grid_windows(
     realised_upstream: bool = True,
     driver_source: str = "realised",
     require_horizons: list[int] | None = None,
+    use_macro: bool = False,
 ):
     """Windows for scored (market, origin) pairs. Origin price and actuals come
     from the baseline file so the paired comparison uses identical targets.
@@ -537,7 +597,7 @@ def build_grid_windows(
         if j is None or i is None:
             skipped.append((r["market"], r["origin"], "not_in_panel"))
             continue
-        X, ok = build_sequence(p, i, j, lookback)
+        X, ok = build_sequence(p, i, j, lookback, use_macro=use_macro)
         if not ok:
             skipped.append((r["market"], r["origin"], "sequence_incomplete"))
             continue
