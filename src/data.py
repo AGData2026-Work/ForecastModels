@@ -60,6 +60,9 @@ class Panel:
     fourier: np.ndarray        # (T, 4)
     has_upstream: np.ndarray   # (M,) bool
     log: dict
+    # D-60: optional origin-time relative-price levels, name -> (T, M), NaN
+    # where unavailable. Filled by attach_relprice(); None means feature off.
+    relprice: dict | None = None
 
 
 def validate_panel(p: "Panel") -> None:
@@ -159,6 +162,43 @@ def load_panel(
                   rain, nd, fou, has_up, log)
     validate_panel(panel)
     return panel
+
+
+def attach_relprice(p: Panel, path: str | Path, series: list[str],
+                    min_history_weeks: int = 52, ffill_limit_weeks: int = 4) -> None:
+    """D-60. For each series X: log(X / maize price) minus that market's own
+    expanding mean of the same ratio over weeks STRICTLY BEFORE t (at least
+    `min_history_weeks` readings), so the value at t only uses data up to t.
+    Positive = maize is cheap relative to X compared with its own history.
+    X is carried forward at most `ffill_limit_weeks` over reporting gaps
+    (past values only); anything still missing stays NaN and is masked in
+    build_flat. Counts go into p.log["relprice"]."""
+    df = pd.read_parquet(path)
+    out, log = {}, {"path": str(path), "min_history_weeks": min_history_weeks,
+                    "ffill_limit_weeks": ffill_limit_weeks, "series": {}}
+    for name in series:
+        g = df[df["series"] == name]
+        if g.empty:
+            raise ValueError(f"relprice series {name!r} not in {path}")
+        X = (g.pivot_table(index="date", columns="market", values="price", aggfunc="mean")
+               .reindex(p.dates).reindex(columns=p.markets))
+        raw_cells = int(X.notna().to_numpy().sum())
+        X = X.ffill(limit=ffill_limit_weeks)
+        with np.errstate(invalid="ignore", divide="ignore"):
+            ratio = np.log(X.to_numpy(dtype=float)) - np.log(p.price)
+        ratio[~np.isfinite(ratio)] = np.nan
+        r = pd.DataFrame(ratio)
+        past_mean = r.expanding(min_periods=min_history_weeks).mean().shift(1)
+        val = (r - past_mean).to_numpy(dtype=float)
+        out[name] = val
+        log["series"][name] = {
+            "raw_cells": raw_cells,
+            "cells_after_ffill": int(X.notna().to_numpy().sum()),
+            "cells_with_feature": int(np.isfinite(val).sum()),
+            "markets_without_series": [m for m in p.markets if X[m].isna().all()],
+        }
+    p.relprice = out
+    p.log["relprice"] = log
 
 
 # ---------------------------------------------------------------------------
@@ -341,6 +381,7 @@ def build_flat(
     use_lag52: bool, use_realised_drivers: bool,
     realised_upstream: bool = True,
     driver_source: str = "realised",
+    use_relprice: bool = False,
 ) -> tuple[np.ndarray, bool]:
     """Non-sequence features. Empty array when both switches are off (Build 1
     unconditional). `driver_source` picks between the CONDITIONAL arm's
@@ -417,6 +458,15 @@ def build_flat(
             vals.append(float(np.mean(rain_fc)) if rain_fc else 0.0)
             vals.append(float(np.mean(ndvi_fc)) if ndvi_fc else 0.0)
 
+    if use_relprice and p.relprice:
+        # D-60: value at the origin plus an availability mask. A missing value
+        # never drops the row, so the scored pair set is unchanged.
+        for name in sorted(p.relprice):
+            v = p.relprice[name][i, j]
+            ok = bool(np.isfinite(v))
+            vals.append(float(v) if ok else 0.0)
+            vals.append(1.0 if ok else 0.0)
+
     arr = np.asarray(vals, dtype=float)
     if arr.size and not np.isfinite(arr).all():
         return np.empty(0), False
@@ -425,7 +475,8 @@ def build_flat(
 
 def flat_feature_names(horizons: list[int], use_lag52: bool, use_realised: bool,
                        realised_upstream: bool = True,
-                       driver_source: str = "realised") -> list[str]:
+                       driver_source: str = "realised",
+                       relprice_names: list[str] | None = None) -> list[str]:
     names = []
     if use_lag52:
         names += [f"lag52_anchor_h{h}" for h in horizons]
@@ -437,6 +488,8 @@ def flat_feature_names(horizons: list[int], use_lag52: bool, use_realised: bool,
             if realised_upstream:
                 names.append(f"{prefix}_upstream_ret_h{h}")
             names += [f"{prefix}_rain_mean_h{h}", f"{prefix}_ndvi_mean_h{h}"]
+    for name in sorted(relprice_names or []):
+        names += [f"relprice_{name}", f"relprice_{name}_mask"]
     return names
 
 
@@ -447,6 +500,7 @@ def build_training_windows(
     origin_min_idx: int | None = None,
     realised_upstream: bool = True,
     driver_source: str = "realised",
+    use_relprice: bool = False,
 ):
     """Every usable (market, week) window whose LAST TARGET lands at or before
     origin_max_idx. Nothing at or after the forecast cut can enter."""
@@ -467,7 +521,7 @@ def build_training_windows(
             if not ok:
                 continue
             F, ok = build_flat(p, i, j, horizons, use_lag52, use_realised_drivers,
-                              realised_upstream, driver_source)
+                              realised_upstream, driver_source, use_relprice)
             if not ok:
                 continue
             Xs.append(X)
@@ -488,6 +542,7 @@ def build_grid_windows(
     realised_upstream: bool = True,
     driver_source: str = "realised",
     require_horizons: list[int] | None = None,
+    use_relprice: bool = False,
 ):
     """Windows for scored (market, origin) pairs. Origin price and actuals come
     from the baseline file so the paired comparison uses identical targets.
@@ -514,7 +569,7 @@ def build_grid_windows(
             skipped.append((r["market"], r["origin"], "sequence_incomplete"))
             continue
         F, ok = build_flat(p, i, j, horizons, use_lag52, use_realised_drivers,
-                          realised_upstream, driver_source)
+                          realised_upstream, driver_source, use_relprice)
         if not ok:
             skipped.append((r["market"], r["origin"], "flat_incomplete"))
             continue

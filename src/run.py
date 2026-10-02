@@ -34,7 +34,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from data import (Scaler, SEQ_BASE_CHANNELS, build_grid_windows,
+from data import (Scaler, SEQ_BASE_CHANNELS, attach_relprice, build_grid_windows,
                   build_training_windows, flat_feature_names, load_grid, load_panel)
 from check_regression import append_run_history
 from metrics import (change_control, diebold_mariano, paired_table, score_long)
@@ -124,6 +124,10 @@ def main() -> None:
                        rainfall_scheme=cfg["features"]["climate_scheme"],
                        fourier_k=cfg["features"]["fourier_k"],
                        interp_limit=cfg["data"]["price_interp_limit_weeks"])
+    relprice = cfg["features"].get("relprice") or []
+    if relprice:
+        attach_relprice(panel, cfg["data"]["relprice_path"], relprice)
+    use_relprice = bool(relprice)
     grid, glog = load_grid(cfg["data"]["baseline_forecasts"], H,
                            drop_targets=cfg["data"]["drop_target_dates"],
                            require_horizons=a.require_horizons)
@@ -166,6 +170,7 @@ def main() -> None:
             panel, H, L, origin_max_idx=cut_i - 1, train_market_ids=train_ids,
             use_lag52=use_lag52, use_realised_drivers=use_realised,
             realised_upstream=realised_upstream, driver_source=driver_source,
+            use_relprice=use_relprice,
         )
         if len(Xtr_all) < cfg["training"]["min_train_windows"]:
             skips.append(dict(cut=cut, reason="too_few_training_windows",
@@ -194,7 +199,7 @@ def main() -> None:
         Xte, Fte, yte, mte, sk = build_grid_windows(
             panel, served, H, L, use_lag52=use_lag52, use_realised_drivers=use_realised,
             realised_upstream=realised_upstream, driver_source=driver_source,
-            require_horizons=a.require_horizons)
+            require_horizons=a.require_horizons, use_relprice=use_relprice)
         if len(sk):
             sk = sk.assign(cut=cut)
             skips.extend(sk.to_dict("records"))
@@ -335,7 +340,7 @@ def main() -> None:
         sequence_channels=SEQ_BASE_CHANNELS,
         n_flat_features=n_flat,
         flat_feature_names=flat_feature_names(H, use_lag52, use_realised, realised_upstream,
-                                              driver_source),
+                                              driver_source, relprice),
         train_markets=train_mkts, scored_markets=scored,
         n_retrain_cuts=len(cuts), retrain_every_weeks=cfg["training"]["retrain_every_weeks"],
         config=cfg, panel_log=panel.log, grid_log=glog,
