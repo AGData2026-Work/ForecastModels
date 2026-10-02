@@ -2723,3 +2723,141 @@ smoke runs and the historical aggregate tables.
 
 **Cost.** About 40 minutes: point-in-time rewrite, one re-score, archive
 moves. No training.
+
+---
+
+## D-60. Raw FEWS NET multi-commodity file screened; rice and gasoline relative prices tried on the GRU, not adopted
+
+**Source.** `FEWS_NET_Staple_Food_Price_Data.xlsx` (owner's Downloads,
+received 2026-09-30): 315,712 rows, Nigeria only, 2003-10-29 to
+2024-09-18, 30 markets, 30+ product and price-type series.
+
+**What the file is, checked against ours.**
+- White maize wholesale, divided by 100 (the file quotes per 100 kg),
+  equals `data/panel_weekly.parquet` `price` exactly on every overlapping
+  (market, week). Nothing to replace there, and the file has no real
+  price for any of our 233 proxy-filled weeks.
+- Diesel is a different series from our `diesel` column: correlation
+  0.97, but a median absolute difference of 10-15% per row. The raw file
+  has readings for 668 of our 2,656 interpolated diesel weeks.
+- All 16 of our markets have weekly sorghum, millet, cowpea, rice,
+  groundnut, gari, yam, yellow maize, retail maize, gasoline, palm oil
+  and bread for 2015-2024. Pre-2012 history covers at most 4 markets.
+
+**Four checks without retraining** (scripts and tables in the session
+scratchpad, not committed):
+1. *Lead-lag screen.* For each series: how much extra of the next 4- or
+   13-week maize log change it explains, beyond maize's own last 4 weeks,
+   within market, non-overlapping origins 2015-2024. Two versions per
+   series: its own recent change, and its price relative to maize
+   (log X/maize minus that market's own past mean of the ratio, so
+   point-in-time). Relative prices carry the signal; changes barely do.
+   Extra R², 4 / 13 weeks: gasoline 5.1 / 6.1%, rice (5% broken) 4.0 /
+   7.6%, our diesel 2.8 / 7.2%, the raw diesel 1.6 / 5.2%, national food
+   CPI (control) 1.3 / 2.3%. Sorghum, cowpea and retail maize: about 0.
+2. *Fuel and the 2023 shock.* Maize's largest 3-month rise ended
+   2023-08 (+84%), the same month as gasoline's (+156%, subsidy
+   removal); diesel's ended 2022-05 with no maize response. No fuel
+   series led the shock, and the sign of the gasoline-to-maize link flips
+   by period (+0.15 in 2015-19, −0.30 in 2020-22, −0.60 in 2023-24).
+3. *Independence* (participation ratio, as in AFEX's v3 sheet). At
+   13-week changes: white maize alone 1.8 effective series out of 16; all
+   wholesale food 5.6 of 189; everything including retail and fuel 9.4 of
+   473. Yellow maize and retail maize correlate 0.96 and 0.90 with white
+   maize wholesale, so they add almost nothing.
+4. *Local deflator for the seasonal index.* Replacing national food CPI
+   with a local basket makes point-in-time seasonal naive worse: MAE at
+   1 / 3 / 6 months 20.48 / 39.99 / 54.92 with food CPI, 21.22 / 43.13 /
+   56.21 with a local food basket, 21.41 / 41.66 / 55.64 with a non-grain
+   basket (both worse at 1 and 3 months, p ≤ .001). Local grains share
+   maize's harvest cycle, so deflating by them removes the seasonality the
+   index exists to capture. Food CPI stays.
+
+**The retrain.** `configs/build3_relprice.yaml` is `build3.yaml` plus
+four flat features at the origin: rice (5% broken, wholesale) and
+gasoline (retail) relative to maize, as in check 1, plus an availability
+mask each. A missing value is masked, never dropped, so the scored pairs
+are the flagship's. Built by `src/build_relprice.py` into
+`data/external/fews_relprice_weekly.parquet`; rice exists for 15 of 16
+markets (none for Gujungu). Code on branch `fewsnet-relprice`. 73,091
+parameters (flagship 72,579). Same 1,590 pairs per horizon, identical
+actuals:
+
+| h | flagship MAE / MAPE | relprice MAE / MAPE | vs naive | DM p | seed-paired t |
+|---|---|---|---|---|---|
+| 4 | 16.33 / 9.24% | 16.16 / 9.19% | +9.12% → +10.10% | .31 | −1.56 (5/7 seeds better) |
+| 13 | 30.45 / 17.06% | 30.07 / 17.26% | +20.50% → +21.49% | .35 | −1.57 (5/7) |
+| 26 | 46.75 / 24.85% | 47.83 / 26.45% | +17.74% → +15.84% | .22 | +0.52 (4/7) |
+
+Better in 2020-24 at every horizon (3-month 2023-24 MAE 65.59 → 62.86),
+worse in 2015-19 at every horizon (6-month 33.83 → 37.25). A plausible
+reason is that early origins have little history behind the "past mean
+of the ratio"; not tested. Markets split at 3 months, from Dandume
+(−3.88) to Damaturu (+2.22).
+
+**Decision: not adopted.** Nothing is significant, and 6 months gets
+worse. Under D-45 an unconfirmed gain does not replace the flagship.
+The screen's in-sample promise mostly did not survive an out-of-sample
+retrain; its significance figures also treated markets as independent
+when they behave like fewer than two series at 13 weeks (check 3).
+
+**Open, if wanted.** Re-run flagship and relprice at 12 seeds (the 5/7
+lean at 1 and 3 months is what D-47 says more seeds would settle); rice
+only, since gasoline's sign flips by period; switch the feature on only
+after several years of ratio history. `src/predict.py` does not build
+these features, so adoption would also need that change.
+
+**Cost.** About 2 hours: screen, one 7-seed retrain (about 25 minutes).
+
+---
+
+## D-61. One GRU per horizon, step 1: clearly worse than one shared model, not adopted
+
+**Question.** Would a separate GRU for each horizon, free to specialise,
+beat the flagship's single model with a shared core and a 3-horizon
+output?
+
+**What changed.** `src/run.py` gained `--model-horizons` (branch
+`fewsnet-per-horizon`): train and score a model for a subset of
+horizons while still loading the grid with every protocol horizon, so
+the scored pairs are identical to a full run's. Training windows then
+only need the chosen horizon's target to exist, so the 1-month model
+gets more recent windows per cut (6,007 vs 5,708 at the last cut).
+`configs/build3_per_horizon.yaml` is `build3.yaml` with only the build
+name changed, so these runs stay out of the flagship's history. Three
+7-seed runs, everything else as the flagship (step 1 tests
+specialisation alone, no per-horizon tuning).
+
+**Result.** Same 1,590 pairs per horizon:
+
+| h | flagship MAE / MAPE | per-horizon MAE / MAPE | vs naive | DM p | seed-paired t |
+|---|---|---|---|---|---|
+| 4 | 16.33 / 9.24% | 17.08 / 9.66% | +9.12% → +4.99% | <.001 | +3.63 (0/7 seeds better) |
+| 13 | 30.45 / 17.06% | 31.24 / 17.81% | +20.50% → +18.45% | .012 | +1.88 (3/7) |
+| 26 | 46.75 / 24.85% | 48.84 / 25.86% | +17.74% → +14.06% | .001 | +1.97 (3/7) |
+
+Direction: 60.2 → 62.0% (1 month), 62.2 → 62.9% (3), 57.5 → 55.5% (6,
+McNemar χ² = 4.04, marginal). The 3-month forecast falls outside the 1-
+and 6-month forecasts for 45.8% of (market, origin) pairs, against
+37.9% for the flagship.
+
+**What it shows.**
+- The 6-month model trained on exactly the flagship's windows and is
+  still 2.09 NGN/kg worse. The only thing removed is learning the 1- and
+  3-month targets alongside it, so the shorter targets were helping the
+  long one.
+- The 1-month model had more and more recent data and was still worse on
+  all 7 seeds, including 2023-24 (38.54 → 40.33). Joint training is
+  worth more here than fresher windows.
+- Same lesson as D-29 to D-34 and AFEX D-48/D-55: on a small, highly
+  correlated panel, extra flexibility costs more than it buys.
+
+**Decision: not adopted, and step 2 (per-horizon tuning) not
+recommended,** since it would build on a setup that starts behind. If
+horizon-specific behaviour is still wanted, the cheaper route keeps the
+shared model and changes only per-horizon loss weights or adds per-horizon
+output layers. Low priority.
+
+**Cost.** Three parallel 7-seed runs, about 45 minutes. A first attempt
+was lost when the background job's time limit stopped it before Python
+had flushed any log output; relaunched detached with unbuffered logs.
