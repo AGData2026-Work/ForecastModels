@@ -35,6 +35,8 @@ else is decommissioned (`docs/DECOMMISSIONED_20260928.md`).
   from `src/regime_blend.py` into `outputs/regime_blend_soft_production/GRU/`.
   `configs/build3.yaml` (D-59) is the previous flagship, kept as the no-FX
   reference; do not report it as production.
+  Every other config, and every `experiment/` branch, is an ongoing experiment, not
+  production: `docs/MODEL_STATUS.md` lists them.
 - AFEX (afex-multicommodity, D-76): GRU on
   `configs/afex_operational_full_exog.yaml`, blend from `src/afex_benchmarks.py`.
 Retired configs are in `configs/_archive/`; retired outputs in
