@@ -2889,6 +2889,9 @@ from this.
 
 ## D-63. Kano against FEWS NET's own projections, and FEWS NET-style benchmarks
 
+*Number note: an older entry, "D-63. Process error, and the finding it surfaced", sits out of
+sequence between D-43 and D-44. This is a different entry; cite it as D-63 (Kano).*
+
 **Question.** How does the GRU compare with what FEWS NET itself publishes,
 and with the method FEWS NET documents?
 
