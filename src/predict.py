@@ -35,7 +35,8 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from data import Scaler, build_flat, build_sequence, load_panel
+from data import (Scaler, attach_fx_summary, attach_macro, build_flat, build_sequence, load_panel,
+                  make_exog_point_in_time)
 from model import RecurrentForecaster, load_checkpoint, predict as net_predict
 
 
@@ -84,6 +85,23 @@ def main() -> None:
     panel = load_panel(cfg["data"]["panel"], rainfall_scheme=cfg["features"]["climate_scheme"],
                        fourier_k=cfg["features"]["fourier_k"],
                        interp_limit=cfg["data"]["price_interp_limit_weeks"])
+    # The same input transformations run.py applied to this run (D-62, D-66, D-67); without
+    # them the production model (D-68) would get a different feature set from the one it
+    # was trained on.
+    if cfg["data"].get("point_in_time_exog", False):
+        make_exog_point_in_time(panel, cfg["data"]["panel"])
+    use_macro = bool(cfg["features"].get("use_macro", False))
+    if use_macro:
+        attach_macro(panel, cfg["data"]["fx_rate_path"], cfg["data"]["inflation_path"],
+                     fx_lag_months=cfg["data"].get("fx_lag_months", 1),
+                     inflation_lag_months=cfg["data"].get("inflation_lag_months", 2))
+    use_fx_summary = bool(cfg["features"].get("fx_summary", False))
+    if use_fx_summary:
+        attach_fx_summary(panel, cfg["data"]["fx_rate_path"], cfg["data"]["inflation_path"],
+                          fx_lag_months=cfg["data"].get("fx_lag_months", 1),
+                          inflation_lag_months=cfg["data"].get("inflation_lag_months", 2),
+                          keep=cfg["features"].get("fx_summary_subset"),
+                          fx_daily_path=cfg["data"].get("fx_daily_path"))
     last_date = panel.dates[-1]
     staleness_weeks = (pd.Timestamp.now() - last_date).days / 7
     if staleness_weeks > a.max_staleness_weeks:
@@ -118,10 +136,10 @@ def main() -> None:
         p0 = panel.price[i, j]
         if not np.isfinite(p0) or p0 <= 0:
             continue
-        X, ok = build_sequence(panel, i, j, L)
+        X, ok = build_sequence(panel, i, j, L, use_macro)
         if not ok:
             continue
-        F, ok = build_flat(panel, i, j, H, use_lag52, False)
+        F, ok = build_flat(panel, i, j, H, use_lag52, False, use_fx_summary=use_fx_summary)
         if not ok:
             continue
         Xs, Fs = scaler.transform(X[None], F[None])
