@@ -24,18 +24,25 @@ pairs are left in place (nothing was deleted, D-16's own precedent), since dropp
 them would also be a real, code-level change and that is not what was asked for --
 they are simply no longer what this workstream reports against or is judged by.
 
-## Production models (owner decision, 2026-09-28)
+## Production models (owner decisions 2026-09-28 and 2026-10-05)
 
 One model per workstream, GRU, plus a point-in-time soft blend; everything
 else is decommissioned (`docs/DECOMMISSIONED_20260928.md`).
-- FEWSNET (this branch, D-59): GRU on `configs/build3.yaml`, blend from
-  `src/regime_blend.py` into `outputs/regime_blend_soft/GRU/`.
+- FEWSNET (main, D-68, replacing D-59's config): GRU on
+  `configs/build3_fxdaily_fxonly_pit.yaml`, the D-59 GRU plus four FX features from
+  the CBN daily rate (D-66) and exogenous inputs as published (D-67). Production run
+  `outputs/production_fxdaily_pit_extended/GRU_unconditional/` (D-56 grid); blend
+  from `src/regime_blend.py` into `outputs/regime_blend_soft_production/GRU/`.
+  `configs/build3.yaml` (D-59) is the previous flagship, kept as the no-FX
+  reference; do not report it as production.
 - AFEX (afex-multicommodity, D-76): GRU on
   `configs/afex_operational_full_exog.yaml`, blend from `src/afex_benchmarks.py`.
 Retired configs are in `configs/_archive/`; retired outputs in
 `outputs/_archive/20260928_decommissioned/`. Do not re-run them without
 being asked. Any seasonal index or scaling statistic feeding a forecast
-must be point-in-time (D-59/D-76 found the original blends were not).
+must be point-in-time (D-59/D-76 found the original blends were not), and every
+input must be what was published by the forecast date (D-67 found the weekly
+panel's diesel, rainfall and NDVI were not).
 
 ## Hard rules
 
@@ -90,7 +97,8 @@ foresight of rainfall, diesel and upstream prices.
 ## Layout
 
     RUNBOOK.md             step-by-step execution instructions
-    configs/build3.yaml    the production config (GRU, D-59)
+    configs/build3_fxdaily_fxonly_pit.yaml  the production config (GRU, D-68)
+    configs/build3.yaml    the previous flagship (D-59), the no-FX reference
     configs/_archive/      retired configs, incl. build1 (replication) and build2
     src/data.py            panel loading, grid consumption, window construction, scaling
     src/model.py           RecurrentForecaster (RNN|GRU), train_one, predict
@@ -111,9 +119,12 @@ nothing else, so an RNN-versus-GRU difference is attributable to gating alone.
 
     python src/audit.py
     python src/diagnose_convention.py
-    python src/run.py --config configs/build3.yaml --kind GRU --convention unconditional --smoke
-    python src/run.py --config configs/build3.yaml --kind GRU --convention conditional --device mps
-    python src/regime_blend.py --run-dir outputs/build3_h4h13_extended/GRU_unconditional --out outputs/regime_blend_soft/GRU
+    python src/fetch_cbn_fx.py --out data/external/<YYYYMMDD>_CBN_API_Nigeria_USDNGN_Daily_<first>_<last>_v1.csv
+    python src/run.py --config configs/build3_fxdaily_fxonly_pit.yaml --kind GRU --convention unconditional --smoke
+    python src/run.py --config configs/build3_fxdaily_fxonly_pit.yaml --kind GRU --convention unconditional \
+        --baseline data/baseline_h4h13_extended.parquet --require-horizons 4 13 \
+        --out outputs/production_fxdaily_pit_extended/GRU_unconditional
+    python src/regime_blend.py --run-dir outputs/production_fxdaily_pit_extended/GRU_unconditional --out outputs/regime_blend_soft_production/GRU
     python src/report.py
     python src/report.py --gate
     python src/summary_table.py --csv outputs/20260818_MAPE_summary.csv
@@ -128,6 +139,10 @@ Files needed:
 
 - `panel_weekly.parquet` (10,352 rows, 27 columns; the white-maize panel)
 - `07_panel_fe_forecasts.parquet` (4,803 rows; carries both `panel_fe` and `naive`)
+- `baseline_h4h13_extended.parquet` (the D-56 grid the production run uses)
+- `external/20261002_CBN_API_Nigeria_USDNGN_Daily_2001-12_2026-09_v1.csv` (the CBN
+  daily rate the production config reads; `data/` is not in git, so rebuild it with
+  `src/fetch_cbn_fx.py`, which reproduces this file byte for byte)
 
 `panel_weekly_yellow.parquet` is a variety split the incumbent did not use.
 `climate_weekly_by_market.parquet` is already merged into the panel.

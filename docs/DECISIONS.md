@@ -3070,3 +3070,52 @@ worse than naive in 2015-19 at every horizon (MAE -3.7 / -10.1 / -10.5%).
 **Consequence.** Every number reported before this entry is somewhat
 optimistic. The panel-regression workstream uses the same data build and
 probably has the same leak; not checked.
+
+## D-68. Owner decision: the daily-FX GRU with as-published inputs is the FEWSNET production model
+
+**Decision (owner, 2026-10-05).** Production moves from the D-59 GRU
+(`configs/build3.yaml`) to `configs/build3_fxdaily_fxonly_pit.yaml`: the same
+GRU (lookback 26, hidden 128, 7 seeds, median) plus the four daily-FX
+features of D-66, with diesel, rainfall and NDVI as published (D-67). The
+point-in-time soft blend stays the companion. `configs/build3.yaml` is kept,
+not archived, as the no-FX reference; it is no longer reported as
+production.
+
+**Production outputs.**
+- `outputs/production_fxdaily_pit_extended/GRU_unconditional/`: the D-56
+  grid (`--baseline data/baseline_h4h13_extended.parquet --require-horizons
+  4 13`), as D-59 did. On the 1,590 historical pairs it reproduces
+  `outputs/build3_fxdaily_fxonly_pit/` to 1.6e-5 NGN/kg.
+- `outputs/regime_blend_soft_production/GRU/`: the blend.
+
+| h | n | GRU MAE / MAPE | vs naive | direction | blend MAE / MAPE | D-59 production GRU, as reported |
+|---|---|---|---|---|---|---|
+| 4 | 1647 | 17.99 / 9.1% | +12.2% | 64.5% | 18.34 / 9.20% | 18.18 (p=.45) |
+| 13 | 1647 | 31.77 / 16.6% | +28.4% | 65.0% | 33.87 / 16.41% | 32.90 (p=.11) |
+| 26 | 1590 | 42.81 / 22.4% | +24.7% | 62.8% | 45.79 / 21.58% | 46.75 (p<.001) |
+
+Seed SD 0.20 / 0.47 / 1.51. The last column is the old model with its
+look-ahead, the strictest comparison available; against the old model with
+inputs as published (D-67), the new one is significantly better at every
+horizon.
+
+**Why.** It passes D-45 against the previous flagship at all three horizons
+once both use only published inputs (D-67), in 13, 12 and 15 of 15
+markets. Its weak spot was the 2023-24 shock, and that largely came from the
+old model seeing diesel early.
+
+**Known limits, unchanged by this decision.**
+- Worse than naive in 2015-19 at every horizon.
+- On direction, always predicting a rise still beats it at 6 months.
+- Not yet tested on 2024-26 out of sample. That is the test that broke the
+  panel-regression workstream's model, where prices fell about two-thirds
+  from the 2024 peak.
+- The release lags behind "as published" are assumptions (D-67).
+- The official rate was pegged before June 2023, and a parallel-market rate
+  is the open fix (D-66).
+
+**What changed in code.** `src/predict.py` now applies the same input steps
+as `src/run.py` (as-published inputs, FX features), checked equal on 64 grid
+windows; without this a live forecast would have used a different feature
+set. `src/fetch_cbn_fx.py` rebuilds the CBN file, which is not in git.
+`CLAUDE.md` and `RUNBOOK.md` updated.

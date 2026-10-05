@@ -1,8 +1,11 @@
 # Runbook: running this on a Mac through Claude Code
 
-> **Status, 2026-09-28 (D-59).** The production model is the GRU on
-> `configs/build3.yaml` with the point-in-time soft blend in
-> `src/regime_blend.py`. Build 1, Build 2 and every other variant are retired;
+> **Status, 2026-10-05 (D-68).** The production model is the GRU on
+> `configs/build3_fxdaily_fxonly_pit.yaml` (CBN daily FX features, exogenous inputs as
+> published) with the point-in-time soft blend in `src/regime_blend.py`. The D-59
+> flagship, `configs/build3.yaml`, is kept as the no-FX reference. The production config
+> reads the CBN daily rate from `data/external/`; rebuild it with `src/fetch_cbn_fx.py`.
+> Before D-68: the production model was the GRU on `configs/build3.yaml` (D-59). Build 1, Build 2 and every other variant are retired;
 > their configs are in `configs/_archive/` and their outputs are listed in
 > `docs/DECOMMISSIONED_20260928.md`. Commands below that name `configs/build1.yaml`
 > or `configs/build2.yaml` are historical; prefix `configs/_archive/` to
@@ -345,9 +348,9 @@ Everything above evaluates historical accuracy. To get an actual forecast for th
 most recent available week:
 
 ```bash
-python src/run.py --config configs/build3.yaml --kind GRU --convention unconditional \
+python src/run.py --config configs/build3_fxdaily_fxonly_pit.yaml --kind GRU --convention unconditional \
   --save-latest-cut-models --device cpu
-python src/predict.py --run-dir outputs/build3_underfit_corrected/GRU_unconditional
+python src/predict.py --run-dir outputs/build3_fxdaily_fxonly_pit/GRU_unconditional
 ```
 
 `--save-latest-cut-models` keeps exactly one cut's checkpoints on disk (the previous
