@@ -2861,3 +2861,212 @@ output layers. Low priority.
 **Cost.** Three parallel 7-seed runs, about 45 minutes. A first attempt
 was lost when the background job's time limit stopped it before Python
 had flushed any log output; relaunched detached with unbuffered logs.
+
+## D-62. Exchange rate and inflation as raw GRU inputs: much worse, not adopted
+
+**Question.** The flagship never used FX. Would the official monthly naira
+rate and headline inflation, added as sequence channels, help?
+
+**What changed.** Branch `fewsnet-fx` (worktree `../ForecastModels_fx_worktree`,
+commit 57afd75; code later carried onto `fewsnet-monthly`): `attach_macro` in
+`src/data.py` adds both series point-in-time (a week sees last month's FX
+average and inflation from two months back), as log-ratio channels like
+diesel. `configs/build3_fx.yaml`; everything else as the flagship.
+
+**Result.** 1,590 pairs: MAE 18.82 / 42.45 / 81.76 against the flagship's
+16.33 / 30.45 / 46.75; worse on every seed (seed-paired t +16 to +29). The
+monthly-cadence version (D-64) was also worse: 16.58 / 35.87 / 62.80.
+
+**Why.** The official rate was pegged for years and then devalued in jumps,
+so the standardised inputs left the training range: 15 sd in 2016 against a
+training maximum of 4.3, and 6.4 to 8.5 sd in 2023-24 against 5.6.
+Inflation reached 29.9% against a training maximum of 18.7%. In 2020, the
+one devaluation inside the training range (1.3 to 2.0 sd), FX helped
+slightly. The problem is the encoding, not the signal; D-65 and D-66 follow
+from this.
+
+**Decision: not adopted.**
+
+## D-63. Kano against FEWS NET's own projections, and FEWS NET-style benchmarks
+
+**Question.** How does the GRU compare with what FEWS NET itself publishes,
+and with the method FEWS NET documents?
+
+**Kano, one against one.** FEWS NET price projection charts for Kano were
+digitised and matched to GRU forecasts made at the same dates: mean
+absolute error 9.4% for the GRU against 18.3% for FEWS NET over 6 forecasts.
+FEWS NET's projected paths had MAPE 24.0% (Oct 2019), 18.7% (Feb 2023,
+retail) and 7.4% (Oct 2025, API data). Six forecasts is a small sample;
+read it as a sanity check, not a result.
+
+**FEWS NET-style benchmarks.** The 2018 price-projection guidance (Annex V
+decomposition; Annex VI Holt-Winters with constants chosen to minimise
+in-sample error), implemented point-in-time on 1,539 pairs where both can
+be fitted: GRU 16.62 / 30.71 / 46.84, Holt-Winters 19.70 / 36.84 / 53.49,
+decomposition 66.70 / 77.96 / 101.70. FEWS NET adds analyst judgement on
+top, which this does not reproduce.
+
+**Where the code is.** Session scratch analysis of 2026-10-02 (digitised
+charts and scripts), not in the repo; the monthly-grid Holt-Winters and
+decomposition baselines are in `src/monthly_baselines.py` (D-64).
+
+## D-64. Monthly-cadence evaluation: sound on its own terms, behind weekly; pinned
+
+**Question.** Would the same model on monthly data, with monthly inputs
+throughout, forecast as well? Owner's conditions: data to September 2024
+only, a separate evaluation, no commodity pooling, and no FX, so cadence is
+the only difference.
+
+**What changed.** `docs/MONTHLY_PROTOCOL.md`; `src/build_monthly_panel.py`
+(month price = mean of its weeks; owner decision 2026-10-02 to keep months
+resting on a single week, 9 months, all in 2012-14), `src/monthly_baselines.py`,
+`src/monthly_compare.py`; `load_panel(frequency="MS")` and month steps in
+`src/walkforward.py`; `configs/build3_monthly.yaml`. Monthly grid: 1,477
+pairs per horizon, horizons 1, 3, 6 months from month-end origins.
+
+**Result, monthly grid.** GRU 14.20 / 30.40 / 48.85 against monthly naive
+16.37 / 36.16 / 54.95: passes D-45 at every horizon.
+
+**Against the weekly flagship.** Matched pairs (a weekly origin in the last 7
+days of a month, its target week in the target month), both scored against
+the target month's average: weekly 15.90 / 31.98 / 44.62, monthly 17.10 /
+35.70 / 49.06. Weekly is significantly better at 3 and 6 months.
+
+**Variant: month price = last observed week** (`--price-agg last`,
+`configs/build3_monthly_last.yaml`; 2,034 of 2,080 months from the final
+week). GRU 16.96 / 33.49 / 49.95 against its own naive 18.71 / 38.27 /
+55.91, smaller margins than the mean version. Matched against the weekly
+flagship on month-end prices: 20.64 vs 20.50 (tie), 38.44 vs 36.37 (weekly
+better, p=.03), 50.43 vs 45.87 (weekly better, p=.004).
+
+**Decision: pinned by the owner (2026-10-04).** Not a production candidate;
+code kept, off by default. Monthly FX results are in D-65 and D-66.
+
+## D-65. FX restructured, options 1 and 2: helps monthly, not weekly
+
+**Option 1, overlay** (`src/fx_overlay.py`, no retraining). Adjusted forecast =
+GRU x exp(beta_h x depreciation), beta fitted point-in-time on realised past
+forecasts. Neutral on weekly, worse on monthly. Not adopted.
+
+**Option 2, bounded summary features.** Six flat features, each a value in
+[0, 1] so a record devaluation reads 1.0 rather than an extreme
+(`attach_fx_summary`): expanding percentile ranks of 3, 6 and 12-month naira
+depreciation and of inflation level and its 6-month change, and months
+since the last month with a 10% or larger depreciation (capped at 24).
+Source: the monthly official-rate file `data/external/fx_rate.xlsx`, a
+month late for a weekly origin. Building it exposed a scaler fault:
+`months_since_deval` is constant in early training windows, so its standard
+deviation was about 1e-8 and dividing by it gave infinite MAE. `Scaler` now
+leaves training-constant features unscaled; the flagship was re-run and is
+unchanged.
+
+| | 1 | 3 | 6 |
+|---|---|---|---|
+| Weekly, all six | 16.25 | 30.09 | 50.72 (worse, p=.011) |
+| Weekly, FX only | 17.18 (worse, p<.001) | 30.86 | 50.33 (worse, p<.001) |
+| Monthly, no FX (D-64) | 14.20 | 30.40 | 48.85 |
+| Monthly, FX only | 13.68 | 28.48 | 41.42 |
+| Monthly, inflation only | 13.95 | 28.03 | 45.31 |
+| Monthly, all six | 14.32 | 28.63 | 42.86 |
+
+Monthly FX-only against monthly no-FX: DM p=.013 / <.0001 / <.0001, seed t
+-5.49 / -7.72 / -8.35, 7/7 seeds. Matched against the weekly flagship it won
+at 6 months (40.91 vs 44.62, p=.021) and lost at 3 (34.98 vs 31.98).
+
+**Why weekly failed.** A weekly origin saw last month's average rate, so the
+June 2023 float reached weekly forecasts only in July; a month-end origin
+saw its own month. That pointed to D-66.
+
+## D-66. FX from the CBN's daily rate, read the day before each forecast
+
+**Data.** `src/fetch_cbn_fx.py` rebuilds
+`data/external/20261002_CBN_API_Nigeria_USDNGN_Daily_2001-12_2026-09_v1.csv`
+from the CBN's public API (byte-identical, checked): 6,070 business days,
+10 Dec 2001 to 30 Sep 2026; the model uses `centralrate`. Against the
+monthly file the daily series averages about 1.3% lower before 2023 (a
+level offset, which ratios ignore), but the monthly file understates late
+2023: Dec 2023 805 against a daily average of 901.
+
+**Features.** The four FX features of D-65 rebuilt from the daily rate
+(`_fx_daily_features`, `data.fx_daily_path`): a trailing 5-business-day
+median absorbs three one-day typos (1,376.80 on 9 Dec 2003, 74.52 on 28 Aug
+2007, 66.09 on 1 Aug 2008) and the 15-20% day-to-day reversals of late
+2023; ranks need 500 earlier business days; read the day before a weekly
+origin, the last day of the month for a monthly one. The June 2023 float
+now registers at the 21 June origin instead of 5 July.
+
+**Result, weekly, 1,590 pairs** (`configs/build3_fxdaily_fxonly.yaml`):
+16.17 / 30.09 / 44.18 against the flagship's 16.33 / 30.45 / 46.75. At 6
+months DM p=.004, seed t -6.98, 7/7 seeds, 14/15 markets; seed SD 1.43 to
+0.39. By period at 6 months: 33.83 to 27.89 (2015-19), 33.25 to 28.28
+(2020-22), 96.56 to 104.96 (2023-24, worse). Blend: 47.38 to 46.43
+(p=.053). Extended grid (`configs/build3_fxdaily_fxonly_extended.yaml`):
+18.32 / 31.75 / 44.18 against 18.18 / 32.90 / 46.75 (p=.60, .16, .004); on
+the 57 extension pairs alone the flagship is better at 1 month (69.79 vs
+78.21) and daily FX at 3 months (78.16 vs 101.29), both p<.001 on n=57.
+
+**Monthly with daily FX.** 14.09 / 28.79 / 40.50: no better than the monthly
+file (worse at 1 month, p=.0002); its 6-month win over weekly disappears
+(p=.32).
+
+**Damping, not adopted** (`src/fx_damping.py`, no retraining). Rule fixed
+in advance: within 12 months of a 10% monthly fall, mix the FX and no-FX
+forecasts with a weight fitted point-in-time. The fitted weight stayed at 1
+at 6 months; a fixed 0.5 made the blend worse (47.56 vs 47.38). The 2023-24
+loss sits before the float, not after it: 6-month forecasts from Oct 2022 to
+13 Jun 2023 erred 124.68 with FX against 79.47 without, and after the float
+112.18 against 135.80. The pegged official rate read calm while maize
+climbed; a parallel-market rate is the candidate fix.
+
+## D-67. Look-ahead audit: diesel, rainfall and NDVI were used before publication
+
+**Checked clean.**
+- Daily-FX features: recomputed at 79 forecast dates (every week of May 2023
+  to Feb 2024 included) from the file truncated at each date; identical.
+  Monthly-file FX and inflation features, 25 months: identical.
+- Walk-forward: training targets end before each cut; each forecast uses the
+  most recent cut at or before its origin.
+- Upstream prices are lagged 1 to 2 weeks.
+- Price interpolation reaches past the origin for 2 of 1,601 origins.
+- Blend: January origins could use December food CPI before release; at
+  most 0.09 NGN/kg on any horizon.
+- Not verifiable: how the 233 proxy-filled price weeks were built (331
+  origins have one inside their 26-week window).
+
+**The leak.** `panel_weekly.parquet` gives every week its calendar month's
+state diesel price, published the next month, and fills missing months
+(25.7% of diesel cells, Nov 2023 for every state) from the month after.
+Rainfall and NDVI are interpolated between 10-day readings dated at their
+start, so a week's value includes up to about 20 days after it. Every
+variant in this log inherited this, the flagship included.
+
+**Fix (D-67 option, `data.point_in_time_exog`).** Diesel: a month's value is
+public on the 20th of the next month, held flat; interpolated months from
+June 2015 are never published (the pre-2015 back-extension is kept: its
+per-state ratio is constant, so it cancels in the log-ratio channel).
+Median 2.1 months stale. Rainfall and NDVI: lagged 4 weeks. Both lags are
+conservative assumptions, not confirmed release dates.
+
+**Result, 1,590 pairs.**
+
+| | 1 | 3 | 6 |
+|---|---|---|---|
+| Flagship, as reported | 16.33 | 30.45 | 46.75 |
+| Flagship, as published | 16.59 (p=.11) | 31.20 (p=.008) | 48.73 (p<.001) |
+| Daily FX, as reported | 16.17 | 30.09 | 44.18 |
+| Daily FX, as published | 15.82 | 29.85 | 42.81 |
+| Daily FX vs flagship, both as published: DM p | .004 | .035 | <.0001 |
+| seed t (seeds better) | -7.74 (7/7) | -2.62 (5/7) | -6.42 (7/7) |
+| markets better | 13/15 | 12/15 | 15/15 |
+
+Seed SD, as published: flagship 0.24 / 0.88 / 1.77, daily FX 0.24 / 0.44 /
+1.51, so daily FX passes D-45 at every horizon. MAPE 9.0 / 16.7 / 22.4%
+against 9.4 / 17.4 / 25.7%. 2023-24 at 6 months: 104.50 to 96.66, so the
+D-66 caveat largely came from the flagship seeing diesel early (the subsidy
+removal and the float hit together). Blends, both as published: 16.65 to
+16.22 (p=.012), 31.75 to 30.80 (p=.013), 48.52 to 45.79 (p<.001). Still
+worse than naive in 2015-19 at every horizon (MAE -3.7 / -10.1 / -10.5%).
+
+**Consequence.** Every number reported before this entry is somewhat
+optimistic. The panel-regression workstream uses the same data build and
+probably has the same leak; not checked.
