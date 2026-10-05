@@ -35,7 +35,8 @@ import yaml
 sys.path.insert(0, str(Path(__file__).parent))
 
 from data import (Scaler, attach_fx_summary, attach_macro, build_grid_windows, sequence_channel_names,
-                  build_training_windows, flat_feature_names, load_grid, load_panel)
+                  build_training_windows, flat_feature_names, load_grid, load_panel,
+                  make_exog_point_in_time)
 from check_regression import append_run_history
 from metrics import (change_control, diebold_mariano, paired_table, score_long)
 from model import RecurrentForecaster, predict, save_checkpoint, train_one
@@ -129,6 +130,10 @@ def main() -> None:
                        fourier_k=cfg["features"]["fourier_k"],
                        interp_limit=cfg["data"]["price_interp_limit_weeks"],
                        frequency=freq)
+    if cfg["data"].get("point_in_time_exog", False):
+        # Leakage audit 2026-10-05: diesel, rainfall and NDVI as published at each date.
+        make_exog_point_in_time(panel, cfg["data"]["panel"])
+        print("point-in-time exogenous inputs:", panel.log["point_in_time_exog"])
     use_macro = bool(cfg["features"].get("use_macro", False))
     if use_macro:
         # Lags in calendar months, point-in-time. Weekly defaults (1, 2): a week only

@@ -223,6 +223,54 @@ def _national_monthly_point_in_time(source_path: str | Path, sheet: str, date_co
                   "weeks_missing": int(np.isnan(vals).sum())}
 
 
+DIESEL_RELEASE_DAY = 20     # a month's state diesel price is assumed public on the 20th of the next month
+CLIMATE_SHIFT_WEEKS = 4     # rainfall/NDVI: weekly value at u uses dekads ending up to u + 20 days
+
+
+def make_exog_point_in_time(p: Panel, panel_path: str | Path) -> None:
+    """Leakage audit, 2026-10-05. Replace the diesel, rainfall and NDVI channels with what
+    would actually have been published at each date. Off by default; the flagship is unchanged.
+
+    Diesel: the panel gives every week its own calendar month's state value, and months with
+    no data (25.7% of cells) are interpolated from the next month. Here a week sees only the
+    latest month M whose release date (DIESEL_RELEASE_DAY of month M + 1) is on or before it,
+    held flat; interpolated months from June 2015 on are treated as never published.
+    Rainfall/NDVI: weekly values are interpolated between dekads dated at their start, so the
+    value at u depends on data up to about u + 20 days, published a few days later. Here a week
+    sees the panel value from CLIMATE_SHIFT_WEEKS earlier (u = t - 28 days)."""
+    df = pd.read_parquet(panel_path)
+    df["date"] = pd.to_datetime(df["date"])
+    # Before June 2015 every diesel cell is the panel's back-extension (national AGO cost x a
+    # per-state ratio), flagged interpolated but one value per month; it is kept, with the same
+    # release lag. The ratio is constant per state, so it cancels in the log-ratio channel.
+    real = ~df["is_interpolated_diesel"].astype(bool) | (df["date"] < "2015-06-01")
+    obs = df[real & df["diesel"].notna()].copy()
+    obs["month"] = obs["date"].dt.to_period("M")
+    monthly = obs.groupby(["market", "month"])["diesel"].first()
+    out = np.full_like(p.diesel, np.nan)
+    stale = []
+    for m, j in p.midx.items():
+        if m not in monthly.index.get_level_values(0):
+            continue
+        s = monthly.loc[m].sort_index()
+        release = (s.index + 1).to_timestamp() + pd.Timedelta(days=DIESEL_RELEASE_DAY - 1)
+        k = np.searchsorted(release.values, p.dates.values, side="right") - 1
+        ok = k >= 0
+        out[ok, j] = s.to_numpy()[k[ok]]
+        stale.append(((p.dates[ok] - s.index[k[ok]].to_timestamp()).days / 30.44))
+    stale = np.concatenate(stale)
+    shift = CLIMATE_SHIFT_WEEKS
+    rain, nd = np.full_like(p.rainfall, np.nan), np.full_like(p.ndvi, np.nan)
+    rain[shift:], nd[shift:] = p.rainfall[:-shift], p.ndvi[:-shift]
+    p.log["point_in_time_exog"] = {
+        "diesel_release_day": DIESEL_RELEASE_DAY, "climate_shift_weeks": shift,
+        "diesel_cells_changed": int((~np.isclose(out, p.diesel, equal_nan=True)).sum()),
+        "diesel_months_behind_median": float(np.median(stale)),
+        "diesel_cells_missing_after": int(np.isnan(out).sum()),
+    }
+    p.diesel, p.rainfall, p.ndvi = out, rain, nd
+
+
 FX_SUMMARY_NAMES = ["fx_dep3_rank", "fx_dep6_rank", "fx_dep12_rank",
                     "infl_level_rank", "infl_change6_rank", "months_since_deval"]
 DEVALUATION = np.log(1.10)   # a month in which the naira fell 10% or more
