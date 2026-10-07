@@ -3283,3 +3283,57 @@ MAE 62 vs naive 55), so the gain at 6 months from D-71 is partly lost.
 quarter or two behind each turn; with two turns in two years (collapse, then rebound) that
 lag costs about as much as it gains. Still worse than naive at every horizon. Not adopted
 for production; the option stays in the code, off.
+
+## D-73. Real-price target and direction-balanced training; bias now reported for every run
+
+**Why.** D-70 to D-72 showed the production model carries an "up" habit: over 2012-24
+prices rose in 64% of 26-week windows, by +13.8% on average, and the target scaler bakes that
+mean in. Out of sample it predicted +13% at 6 months while prices fell 24%.
+
+**Changes (all off by default; production identical).**
+- `training.real_target`: training targets are price changes net of expected food inflation
+  (latest published food-inflation YoY, lag 2 months, x h/52); forecasts add it back
+  (`run.py`, `predict.py`).
+- `training.direction_balance`: rising and falling training windows (sign of the mean
+  target, net of inflation when `real_target` is on) carry equal total weight.
+- `metrics.bias_metrics`, written as `bias_metrics.csv` by every run and by
+  `src/bias_report.py` for finished runs: over/under split with a sign test, mean (pct)
+  error, rolling 12-forecast tracking signal per market (share of points outside +/-4; at 3
+  and 6 months overlapping forecasts keep it high even without bias, so read it relatively),
+  and Mincer-Zarnowitz on changes from the origin price (intercept 0 and slope 1 if unbiased;
+  market-clustered errors; joint chi-square test). `score_oos_2024_26.py` reports it too.
+
+**2015-2024, extended grid** (`outputs/d73_hist_*`; DM vs production):
+
+| | 1 | 3 | 6 | over / under at 6 | mean % error at 6 |
+|---|---|---|---|---|---|
+| production | 17.99 | 31.77 | 42.81 | 37 / 63 | -4.5% |
+| real target | 17.96 (p=.65) | 31.33 (p=.035) | 40.30 (p<.001) | 43 / 57 | -1.9% |
+| direction balance | 18.05 (p=.53) | 31.82 (p=.79) | 42.77 (p=.89) | 37 / 63 | -5.6% |
+| both | 18.07 (p=.27) | 31.22 (p=.016) | 40.24 (p<.001) | 44 / 56 | -1.3% |
+
+Real target at 6 months: margin 2.51 against seed SD 1.19, passes D-45; at 3 months 0.44
+against 0.77, does not. 2023-24 at 6 months: 96.7 to 82.8. Bias falls at every horizon.
+
+**Out of sample 2024-26, quarterly retraining, 9 continued markets** (`outputs/d73_oos_*`;
+DM vs D-71):
+
+| | 1 | 3 | 6 |
+|---|---|---|---|
+| naive | 77.4 | 93.3 | 172.1 |
+| quarterly (D-71) | 93.5 (-20.8%) | 116.0 (-24.3%) | 186.8 (-8.5%) |
+| real target | 95.1 (-22.9%) | 124.8 (-33.8%) | 204.0 (-18.5%) |
+| direction balance | 91.5 (-18.2%) | 108.9 (-16.7%) | 166.5 (+3.3%) |
+| both | 95.1 (-22.9%) | 124.9 (-33.9%) | 203.5 (-18.2%) |
+
+Real target is worse out of sample: official food inflation stayed at 20-40% through mid-2025
+while maize fell, so the added expected inflation pushed forecasts further up. Direction
+balance helps out of sample at every horizon and is the first variant ahead of naive at 6
+months, but not robustly: 4 of 7 seeds beat naive (seed MAEs 159.8 to 207.3), the 5.6 NGN/kg
+margin is inside seed noise (fails D-45), and it wins only Oct 2025 to Mar 2026 (193 vs 290)
+while losing the other periods.
+
+**Decision: neither adopted.** Real target improves 2015-24 and reduces bias but fails the
+reversal; balance helps the reversal but is noise-level. Both stay in the code, off. The
+result points to inputs that explain falls (import parity, harvest, policy), not to target
+or weighting changes alone.
