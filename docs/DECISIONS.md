@@ -3244,3 +3244,42 @@ worse than naive at every horizon and still predicts rises about 70-80% of the t
 constraint is the data: FEWS NET's monthly gaps leave too few complete training windows.
 Options, not yet tried: allow windows with partial targets (a masked loss), or add AFEX
 weekly prices where they exist. Both are code or data changes needing the owner's call.
+
+## D-72. Out of sample with partial training targets: better at 1 and 3 months, still worse than naive
+
+**Question.** D-71's retrains had too few complete training windows. Does counting a window
+when only some of its targets are published help?
+
+**Change** (`training.partial_targets`, off by default; `src/data.py`, `src/model.py`,
+`src/run.py`). A window is kept when at least one of its 4/13/26-week targets is known by
+the cut; unknown or unpublished targets are NaN and masked out of the training, validation
+and checkpoint losses; target scaling uses only known targets. A missing target adds
+nothing to the loss, and scoring still uses only months FEWS NET published. One side effect:
+horizons with more known targets weigh more in training. Production is untouched: a
+production smoke run is identical to the previous code (300 forecasts, max diff 0.0).
+
+**Run.** `configs/build3_fxdaily_fxonly_pit_oos2026_partial.yaml`; same grid, 8 quarterly cuts.
+Learnable post-Sept-2024 targets per cut: 0, 16, 296, 431, 431, 647, 998, 1,349 (D-71: at
+most 184 windows). Partial windows also add 374 recent windows at the first cut.
+
+**Result, 9 continued markets, latest price at most 13 weeks old.**
+
+| | 1 | 3 | 6 |
+|---|---|---|---|
+| naive MAE | 77.39 | 93.31 | 172.13 |
+| frozen (D-70) | 94.07 (-21.5%) | 118.19 (-26.7%) | 197.61 (-14.8%) |
+| quarterly (D-71) | 93.5 (-20.8%) | 116.0 (-24.3%) | 186.8 (-8.5%) |
+| partial targets | 90.6 (-17.1%) | 113.6 (-21.8%) | 189.1 (-9.9%) |
+| partial vs quarterly, DM p | .018 | <.001 | <.001 (worse) |
+| partial vs naive, DM p | <.001 | <.001 | <.001 |
+| predicted a rise / prices rose | 74 / 43% | 60 / 44% | 79 / 32% |
+
+**What changed, by target period.** At 3 months for Oct 2025 to Mar 2026 the model now
+matches naive (109 vs 111; frozen 136): it has learned the fall. But it learned it late:
+in the Apr to Aug 2026 rebound it predicts too few rises (3 months: 40% against 93% actual;
+MAE 62 vs naive 55), so the gain at 6 months from D-71 is partly lost.
+
+**Reading.** More training signal makes the model track the regime it has just seen, a
+quarter or two behind each turn; with two turns in two years (collapse, then rebound) that
+lag costs about as much as it gains. Still worse than naive at every horizon. Not adopted
+for production; the option stays in the code, off.

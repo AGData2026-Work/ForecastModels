@@ -26,6 +26,7 @@ but switched off unless the config turns it on.
 | `configs/build3_fxsummary.yaml`, `configs/build3_fxsummary_fxonly.yaml` | D-65 | FX scores from the monthly file; worse weekly at 6 months |
 | `configs/build3_monthly*.yaml` | D-64 to D-66 | Monthly cadence; pinned by the owner |
 | `configs/build3_fxdaily_fxonly_pit_oos2026.yaml` | D-70 | Production model, frozen at Sep 2024, out of sample 2024-26: worse than naive |
+| `configs/build3_fxdaily_fxonly_pit_oos2026_partial.yaml` | D-71, D-72 | Same, retrained quarterly (D-71) and with partial targets (D-72): still worse than naive |
 
 ## Ongoing experiments on their own branches: not production
 Each branch has an `EXPERIMENT.md` at its root saying the same.
