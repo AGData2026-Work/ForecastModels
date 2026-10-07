@@ -85,6 +85,10 @@ def main() -> None:
     ap.add_argument("--panel", default=None, help="override data.panel from the config")
     ap.add_argument("--baseline", default=None,
                     help="override data.baseline_forecasts from the config")
+    ap.add_argument("--cuts", nargs="+", default=None,
+                    help="override the retrain cut dates (YYYY-MM-DD). Default: every "
+                         "retrain_every_weeks from the first grid origin, as before. Used to fit "
+                         "once at a fixed date for an out-of-sample test")
     ap.add_argument("--require-horizons", type=int, nargs="+", default=None,
                     help="only these horizons (a subset of --config's protocol.horizons) "
                          "must have a real actual for an origin to be scored; others may "
@@ -164,6 +168,10 @@ def main() -> None:
     train_ids = [panel.midx[m] for m in train_mkts]
 
     cuts = retrain_cuts(grid["origin"], cfg["training"]["retrain_every_weeks"], freq)
+    if a.cuts:
+        cuts = [pd.Timestamp(c) for c in a.cuts]
+        if min(cuts) > grid["origin"].min():
+            raise SystemExit(f"--cuts must start on or before the first origin {grid['origin'].min().date()}")
     grid = grid.assign(cut=assign_to_cuts(grid, cuts))
     if a.smoke:
         keep_cuts = sorted(grid["cut"].unique())[:3]

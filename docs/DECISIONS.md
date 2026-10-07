@@ -3122,3 +3122,85 @@ as `src/run.py` (as-published inputs, FX features), checked equal on 64 grid
 windows; without this a live forecast would have used a different feature
 set. `src/fetch_cbn_fx.py` rebuilds the CBN file, which is not in git.
 `CLAUDE.md` and `RUNBOOK.md` updated.
+
+## D-69. Relative prices and per-horizon GRUs on the extended grid: production still best
+
+**Why.** Only four models had ever been scored on the D-56 grid; D-60 and D-61 were
+scored on the 1,590-pair grid only. Both re-run from their experiment branches
+(worktrees, unchanged code, `--baseline data/baseline_h4h13_extended.parquet`; per-horizon
+runs with `--require-horizons` equal to their own horizon). Outputs:
+`outputs/build3_relprice_extended/`, `outputs/build3_per_horizon_extended/`.
+
+**Result, same 1,647 / 1,647 / 1,590 pairs.**
+
+| Model | 1 | 3 | 6 | MAPE | vs naive | DM p vs production |
+|---|---|---|---|---|---|---|
+| Production (D-68) | 17.99 | 31.77 | 42.81 | 9.1 / 16.6 / 22.4% | +12.2 / +28.4 / +24.7% | |
+| Relative prices | 18.06 | 32.20 | 47.83 | 9.2 / 17.2 / 26.5% | +11.8 / +27.4 / +15.8% | .81 / .53 / <.001 |
+| Per-horizon GRUs | 18.74 | 34.86 | 48.84 | 9.7 / 17.9 / 25.9% | +8.5 / +21.4 / +14.1% | .015 / <.001 / <.001 |
+| Old flagship (D-59) | 18.18 | 32.90 | 46.75 | 9.3 / 17.0 / 24.8% | +11.2 / +25.8 / +17.7% | .45 / .11 / <.001 |
+
+Both experiments still use the pre-D-67 inputs (with the diesel and climate look-ahead),
+which favours them; production is ahead or tied everywhere regardless. D-60 and D-61 stand.
+
+## D-70. Out of sample, Oct 2024 to Aug 2026: the production model fails like the panel model did
+
+**Question.** D-68 was adopted on 2015-2024 evidence. How does the production model do
+on the two years after its data ends, when prices fell by about two-thirds?
+
+**Data, applied as it would have been known** (`src/build_oos_2024_26.py`):
+- Price after 2024-09-18: FEWS NET's monthly white-maize wholesale value (API, re-pulled
+  2026-10-05, `..._v2.csv`; 342 values revised since the 2026-10-02 pull). A month's value
+  is assumed public on the 15th of the next month and is held flat until the next one is
+  public; missing months extend the hold. Nothing is interpolated.
+- 9 markets continue monthly to Aug 2026 (Biu, Damaturu, Dandume, Ibadan, Kano, Kaura
+  Namoda, Maiduguri, Mubi, Potiskum); 6 stop after Jan 2025 (Giwa, Gombe, Gujungu, Gwandu,
+  Lagos, Saminaka). Every market is missing Oct-Nov 2024, Feb-Mar 2025, May-Aug 2025 and
+  Oct 2025 at source.
+- Diesel: two variants, FEWS NET market diesel spliced on (per-market 2023-24 ratio) and
+  no new diesel; both then as published (D-67). Rainfall/NDVI: the original climate script
+  run to 2026-09-30, identical to the panel on overlap; NDVI after its source ends is NaN.
+  FX: CBN daily. Upstream: built from the same monthly steps (Ibadan's and Potiskum's
+  upstream, Saminaka, freezes at its Jan 2025 value).
+- Grid (`data/oos_grid_2024_26.parquet`): origins 2024-09-25 and the first Wednesday after
+  each month's value is public, to 2026-07-15 (23); actual = FEWS NET's value for the
+  target week's month, scored only where it exists; naive = the last published value, the
+  same number the model starts from.
+
+**Model.** `configs/build3_fxdaily_fxonly_pit_oos2026.yaml`: production, fitted once at
+2024-09-25 on everything to 2024-09-18 (6,097 windows, 7 seeds) and frozen, as deployed in
+Sept 2024. `src/run.py` gained `--cuts` (off by default) to pin that single fit date; one
+run per horizon. The 2026-07-15 origin is lost to the NDVI gap (9 windows, logged).
+
+**Result, 9 continued markets, latest price at most 13 weeks old** (`src/score_oos_2024_26.py`):
+
+| | 1 | 3 | 6 |
+|---|---|---|---|
+| n | 108 | 108 | 90 |
+| GRU MAE / naive MAE | 94.07 / 77.39 | 118.19 / 93.31 | 197.61 / 172.13 |
+| vs naive | -21.5% | -26.7% | -14.8% |
+| MAPE GRU / naive | 23.3 / 19.9% | 30.7 / 25.3% | 58.5 / 53.2% |
+| predicted a rise / prices rose | 81.5 / 42.6% | 75.9 / 44.4% | 71.1 / 32.2% |
+| mean error | +16% | +20% | +57% |
+
+Worse than naive at every horizon (DM p<.001), with or without stale origins and on all 15
+markets. The diesel variant changes MAE by under 2.5 NGN/kg. By target period at 1 month:
+Oct 2024-Mar 2025, rises predicted 93% of the time against 0% actual (direction 7%);
+Apr-Aug 2026, as prices rose again, slightly better than naive (33 vs 36; 3 months 50 vs
+55). The 6 discontinued markets add 2 to 4 scorable forecasts each, all poor.
+
+**Reading.** The FX features and as-published inputs did not protect the model from the
+reversal: trained on a decade of mostly rising prices, it kept forecasting rises. In
+2025-26 the naira strengthened, a combination (falling maize, firming naira) the training
+data does not contain. This is the strictest version of the test: production retrains
+every 13 weeks, and a frozen model never learns from the collapse.
+
+**The 13-week rule with monthly data.** Interpolating up to 13 weeks (load_panel's
+`price_interp_limit_weeks`, and AFEX's own fills) would put an unpublished next-month price
+into almost every input window, and must never fill targets; not used. As a staleness
+limit (forecast only when the latest price is at most 13 weeks old, i.e. one missed month
+tolerated) it is recommended as an operating rule, for honesty rather than accuracy: here
+naive is equally stale, so it does not change the verdict.
+
+**Status.** D-68 stands as the best model on 2015-2024, but it is not shown to work after
+the reversal. Next: the same test with quarterly retraining (D-71).
