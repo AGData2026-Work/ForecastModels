@@ -34,11 +34,12 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from data import (Scaler, attach_fx_summary, attach_macro, build_grid_windows, sequence_channel_names,
+from data import (Scaler, attach_fx_summary, attach_inflation_drift, attach_macro, build_grid_windows,
+                  inflation_offsets, sequence_channel_names,
                   build_training_windows, flat_feature_names, load_grid, load_panel,
                   make_exog_point_in_time)
 from check_regression import append_run_history
-from metrics import (change_control, diebold_mariano, paired_table, score_long)
+from metrics import (bias_metrics, change_control, diebold_mariano, paired_table, score_long)
 from model import RecurrentForecaster, predict, save_checkpoint, train_one
 from walkforward import (assign_to_cuts, chronological_split, recency_weights,
                          retrain_cuts)
@@ -156,6 +157,10 @@ def main() -> None:
                           keep=cfg["features"].get("fx_summary_subset"),
                           fx_daily_path=cfg["data"].get("fx_daily_path"),
                           origin_is_month_end=(freq == "MS"))
+    if cfg["training"].get("real_target", False):
+        # D-73: train on price changes net of expected (food) inflation; forecasts add it back.
+        attach_inflation_drift(panel, cfg["data"]["inflation_path"],
+                               lag_months=cfg["data"].get("inflation_lag_months", 2))
     grid, glog = load_grid(cfg["data"]["baseline_forecasts"], H,
                            drop_targets=cfg["data"]["drop_target_dates"],
                            require_horizons=a.require_horizons)
@@ -228,6 +233,14 @@ def main() -> None:
 
         w = recency_weights(mtr_all["origin"].values[tr_i],
                             cfg["training"]["recency_half_life_weeks"])
+        if cfg["training"].get("direction_balance", False):
+            # D-73: rising and falling windows weigh the same in total. A window's direction is
+            # the sign of its mean target (net of expected inflation when real_target is on).
+            up = np.nanmean(ytr, axis=1) > 0
+            n_up, n_dn = int(up.sum()), int((~up).sum())
+            if n_up and n_dn:
+                w = w * np.where(up, len(up) / (2.0 * n_up), len(up) / (2.0 * n_dn))
+            slog.update(direction_balance_up=n_up, direction_balance_down=n_dn)
 
         Xte, Fte, yte, mte, sk = build_grid_windows(
             panel, served, H, L, use_lag52=use_lag52, use_realised_drivers=use_realised,
@@ -294,6 +307,7 @@ def main() -> None:
             tlog.append(info)
             for r in range(len(mte)):
                 p0 = float(mte["origin_price"].iloc[r])
+                off = inflation_offsets(panel, panel.pos[pd.Timestamp(mte["origin"].iloc[r])], H)
                 for hi, h in enumerate(H):
                     actual_h = mte[f"actual_h{h}"].iloc[r]
                     if pd.isna(actual_h):
@@ -310,7 +324,7 @@ def main() -> None:
                         origin=mte["origin"].iloc[r], market=mte["market"].iloc[r],
                         h=h, origin_price=p0,
                         actual=float(actual_h),
-                        pred=float(p0 * np.exp(yhat[r, hi])),
+                        pred=float(p0 * np.exp(yhat[r, hi] + off[hi])),
                         panel_fe=float(mte[f"panel_fe_h{h}"].iloc[r]),
                         naive=float(mte[f"naive_h{h}"].iloc[r])))
         print(f"  cut {ci+1}/{len(cuts)} {pd.Timestamp(cut).date()} "
@@ -337,6 +351,7 @@ def main() -> None:
 
     paired = paired_table(g, a.kind)
     paired.to_csv(out / "paired_metrics.csv", index=False)
+    bias_metrics(g, a.kind).to_csv(out / "bias_metrics.csv", index=False)  # D-73
     if not a.smoke:
         append_run_history(Path(a.history), cfg["build"]["name"], a.kind,
                            a.convention, paired)

@@ -86,6 +86,10 @@ class Panel:
     # once known. None (the default, every panel without these columns) = targets are `price`.
     target_price: np.ndarray | None = None      # (T, M)
     target_known_idx: np.ndarray | None = None  # (T, M) first panel index at which the target is known
+    # Real-price target (D-73): annual log food-inflation rate known at each date, (T,). When set,
+    # training targets are price changes net of expected inflation, rate * h / 52, and forecasts
+    # add it back. None (default) = nominal targets, as before.
+    infl_drift: np.ndarray | None = None
 
 
 def validate_panel(p: "Panel") -> None:
@@ -286,6 +290,30 @@ def make_exog_point_in_time(p: Panel, panel_path: str | Path) -> None:
         "diesel_cells_missing_after": int(np.isnan(out).sum()),
     }
     p.diesel, p.rainfall, p.ndvi = out, rain, nd
+
+
+def attach_inflation_drift(p: Panel, inflation_path: str | Path, lag_months: int = 2,
+                           column: str = "Food Inflation (%)-YoY") -> None:
+    """D-73. Expected inflation at each date: the food-inflation YoY rate of month(date) - lag
+    (the latest published by then), as an annual log rate; carried past the file's end."""
+    inf = pd.read_excel(inflation_path, sheet_name="Monthly Inflation").rename(columns={"Unnamed: 0": "date"})
+    inf["date"] = pd.to_datetime(inf["date"])
+    s = inf.drop_duplicates("date").set_index("date")[column].sort_index()
+    s.index = s.index.to_period("M")
+    want = p.dates.to_period("M") - lag_months
+    v = s.reindex(want).to_numpy(dtype=float)
+    last = s.index.max()
+    v[want > last] = float(s.loc[last])
+    p.infl_drift = np.log1p(v / 100.0)
+    p.log["infl_drift"] = {"source": str(inflation_path), "column": column, "lag_months": lag_months,
+                           "missing": int(np.isnan(p.infl_drift).sum())}
+
+
+def inflation_offsets(p: Panel, i: int, horizons: list[int]) -> np.ndarray:
+    """Expected log inflation over each horizon from date index i (zeros when not enabled)."""
+    if p.infl_drift is None:
+        return np.zeros(len(horizons))
+    return np.array([p.infl_drift[i] * h / 52.0 for h in horizons])
 
 
 FX_SUMMARY_NAMES = ["fx_dep3_rank", "fx_dep6_rank", "fx_dep12_rank",
@@ -792,7 +820,7 @@ def build_training_windows(
                 continue
             Xs.append(X)
             Fs.append(F)
-            ys.append(np.log(tgt) - np.log(p0))
+            ys.append(np.log(tgt) - np.log(p0) - inflation_offsets(p, i, horizons))
             meta.append((p.markets[j], j, p.dates[i], float(p0)))
     if not Xs:
         return (np.empty((0, lookback, 0)), np.empty((0, 0)),

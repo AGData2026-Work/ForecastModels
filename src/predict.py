@@ -35,7 +35,8 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from data import (Scaler, attach_fx_summary, attach_macro, build_flat, build_sequence, load_panel,
+from data import (Scaler, attach_fx_summary, attach_inflation_drift, attach_macro, build_flat, build_sequence,
+                  inflation_offsets, load_panel,
                   make_exog_point_in_time)
 from model import RecurrentForecaster, load_checkpoint, predict as net_predict
 
@@ -102,6 +103,9 @@ def main() -> None:
                           inflation_lag_months=cfg["data"].get("inflation_lag_months", 2),
                           keep=cfg["features"].get("fx_summary_subset"),
                           fx_daily_path=cfg["data"].get("fx_daily_path"))
+    if cfg["training"].get("real_target", False):
+        attach_inflation_drift(panel, cfg["data"]["inflation_path"],
+                               lag_months=cfg["data"].get("inflation_lag_months", 2))
     last_date = panel.dates[-1]
     staleness_weeks = (pd.Timestamp.now() - last_date).days / 7
     if staleness_weeks > a.max_staleness_weeks:
@@ -152,7 +156,7 @@ def main() -> None:
         median_yhat = np.median(np.stack(preds_this_market), axis=0)
         for hi, h in enumerate(H):
             rows.append(dict(market=market, origin=str(last_date.date()), h=h,
-                             forecast_price=float(p0 * np.exp(median_yhat[hi]))))
+                             forecast_price=float(p0 * np.exp(median_yhat[hi] + inflation_offsets(panel, i, H)[hi]))))
 
     out = pd.DataFrame(rows)
     predictions_dir = run_dir / "predictions"
