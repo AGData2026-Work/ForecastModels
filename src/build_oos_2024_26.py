@@ -144,6 +144,7 @@ def main() -> None:
     ad["month"] = ad["period_date"].dt.to_period("M")
     adm = ad.groupby(["market", "month"])["value"].mean()
     P["month"] = P["date"].dt.to_period("M")
+    actual_m = w.set_index(["market", "month"])["p"]
     outs = {}
     for variant in ("fewsdiesel", "flatdiesel"):
         Q = P.copy()
@@ -158,7 +159,15 @@ def main() -> None:
         Q["diesel"], Q["is_interpolated_diesel"] = dv, interp
         log[f"{variant}_new_diesel_months"] = int(Q.loc[~Q["is_interpolated_diesel"] & (Q["month"] > pd.Period("2024-09")), ["market", "month"]].drop_duplicates().shape[0])
         cols = list(pw.columns) + ["oos_price_source", "oos_data_age_weeks", "oos_value_refers_to"]
-        ext = pd.concat([pw.assign(oos_price_source="panel_weekly", oos_data_age_weeks=0.0, oos_value_refers_to=""), Q[cols]], ignore_index=True)
+        # D-71 training targets: the real value of the week's own month, known from the 15th of
+        # the next month; NaN where FEWS NET has no value. History rows: NaN (= use price).
+        Q["target_price"] = [actual_m.get((m, mo), np.nan) for m, mo in zip(Q["market"], Q["month"])]
+        Q["target_known_date"] = [(mo + 1).to_timestamp() + pd.Timedelta(days=AVAIL_DAY - 1) for mo in Q["month"]]
+        cols2 = cols + ["target_price", "target_known_date"]
+        Q["target_from_price"] = 0.0
+        hist = pw.assign(oos_price_source="panel_weekly", oos_data_age_weeks=0.0, oos_value_refers_to="",
+                         target_price=np.nan, target_known_date=pw["date"], target_from_price=1.0)
+        ext = pd.concat([hist, Q[cols2 + ["target_from_price"]]], ignore_index=True)
         ext = ext.sort_values(["market", "date"]).reset_index(drop=True)
         ext["is_proxy_price"] = ext["is_proxy_price"].astype(bool)
         ext.to_parquet(f"data/panel_weekly_oos2026_{variant}.parquet", index=False)

@@ -82,6 +82,10 @@ class Panel:
     fx_summary: np.ndarray | None = None
     fx_summary_names: list | None = None
     inflation_yoy: np.ndarray | None = None  # (T, M), national series broadcast to every column
+    # Out-of-sample retraining (D-71): training TARGETS from a separate column, each usable only
+    # once known. None (the default, every panel without these columns) = targets are `price`.
+    target_price: np.ndarray | None = None      # (T, M)
+    target_known_idx: np.ndarray | None = None  # (T, M) first panel index at which the target is known
 
 
 def validate_panel(p: "Panel") -> None:
@@ -194,6 +198,19 @@ def load_panel(
     }
     panel = Panel(dates, markets, pos, midx, price, filled, diesel, upstream,
                   rain, nd, fou, has_up, log, season_lag=season_lag)
+    if "target_price" in df.columns and "target_known_date" in df.columns:
+        # D-71: rows flagged target_from_price (the weekly history) keep `price` as the target,
+        # exactly as before; other rows (the monthly period) use that month's real value, known
+        # only from target_known_date on, and stay NaN (no window) where there is none.
+        tp = grid("target_price")
+        from_price = grid("target_from_price") > 0.5
+        panel.target_price = np.where(from_price, price, tp)
+        kd = (df.assign(target_known_date=pd.to_datetime(df["target_known_date"]))
+                .pivot(index="date", columns="market", values="target_known_date")
+                .reindex(dates)[markets])
+        kidx = np.searchsorted(dates.values, kd.to_numpy(dtype="datetime64[ns]").ravel(), side="left")
+        panel.target_known_idx = kidx.reshape(kd.shape)
+        log["target_price_cells_from_column"] = int(np.isfinite(tp).sum())
     validate_panel(panel)
     return panel
 
@@ -744,9 +761,12 @@ def build_training_windows(
             p0 = p.price[i, j]
             if not np.isfinite(p0) or p0 <= 0:
                 continue
-            tgt = p.price[[i + h for h in horizons], j]
+            ti = [i + h for h in horizons]
+            tgt = (p.target_price if p.target_price is not None else p.price)[ti, j]
             if not np.isfinite(tgt).all() or (tgt <= 0).any():
                 continue
+            if p.target_known_idx is not None and (p.target_known_idx[ti, j] > origin_max_idx).any():
+                continue  # D-71: a target not yet published at the cut cannot be trained on
             X, ok = build_sequence(p, i, j, lookback, use_macro=use_macro)
             if not ok:
                 continue
