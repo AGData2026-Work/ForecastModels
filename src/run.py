@@ -203,6 +203,7 @@ def main() -> None:
             use_lag52=use_lag52, use_realised_drivers=use_realised,
             realised_upstream=realised_upstream, driver_source=driver_source,
             use_macro=use_macro, use_fx_summary=use_fx_summary,
+            partial_targets=bool(cfg["training"].get("partial_targets", False)),
         )
         if len(Xtr_all) < cfg["training"]["min_train_windows"]:
             skips.append(dict(cut=cut, reason="too_few_training_windows",

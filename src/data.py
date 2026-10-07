@@ -748,25 +748,41 @@ def build_training_windows(
     driver_source: str = "realised",
     use_macro: bool = False,
     use_fx_summary: bool = False,
+    partial_targets: bool = False,
 ):
     """Every usable (market, week) window whose LAST TARGET lands at or before
-    origin_max_idx. Nothing at or after the forecast cut can enter."""
+    origin_max_idx. Nothing at or after the forecast cut can enter.
+
+    partial_targets (D-72, off by default): keep a window when at least one horizon's target
+    is known by the cut; the others are NaN and masked out of the loss in train_one. Targets
+    after the cut, or not yet published (target_known_idx), are always NaN, never used."""
     max_h = max(horizons)
     lo = max(lookback - 1, p.season_lag) if use_lag52 else lookback - 1
     if origin_min_idx is not None:
         lo = max(lo, origin_min_idx)
     Xs, Fs, ys, meta = [], [], [], []
+    T_ = len(p.dates)
+    i_end = origin_max_idx - (min(horizons) if partial_targets else max_h) + 1
     for j in train_market_ids:
-        for i in range(lo, origin_max_idx - max_h + 1):
+        for i in range(lo, i_end):
             p0 = p.price[i, j]
             if not np.isfinite(p0) or p0 <= 0:
                 continue
             ti = [i + h for h in horizons]
-            tgt = (p.target_price if p.target_price is not None else p.price)[ti, j]
-            if not np.isfinite(tgt).all() or (tgt <= 0).any():
-                continue
-            if p.target_known_idx is not None and (p.target_known_idx[ti, j] > origin_max_idx).any():
-                continue  # D-71: a target not yet published at the cut cannot be trained on
+            if partial_targets:
+                src = p.target_price if p.target_price is not None else p.price
+                tgt = np.array([src[t, j] if t < T_ else np.nan for t in ti], dtype=float)
+                known = np.array([t <= origin_max_idx and (p.target_known_idx is None or p.target_known_idx[t, j] <= origin_max_idx)
+                                  if t < T_ else False for t in ti])
+                tgt = np.where(known & np.isfinite(tgt) & (tgt > 0), tgt, np.nan)
+                if not np.isfinite(tgt).any():
+                    continue
+            else:
+                tgt = (p.target_price if p.target_price is not None else p.price)[ti, j]
+                if not np.isfinite(tgt).all() or (tgt <= 0).any():
+                    continue
+                if p.target_known_idx is not None and (p.target_known_idx[ti, j] > origin_max_idx).any():
+                    continue  # D-71: a target not yet published at the cut cannot be trained on
             X, ok = build_sequence(p, i, j, lookback, use_macro=use_macro)
             if not ok:
                 continue
@@ -871,7 +887,10 @@ class Scaler:
             sd = F.std(0)
             self.flat_mu, self.flat_sd = F.mean(0), np.where(sd < 1e-6, 1.0, sd) + 1e-8
         if y is not None:
-            self.y_mu, self.y_sd = y.mean(0), y.std(0) + 1e-8
+            if np.isnan(y).any():  # D-72 partial targets: statistics over the known targets only
+                self.y_mu, self.y_sd = np.nanmean(y, 0), np.nanstd(y, 0) + 1e-8
+            else:
+                self.y_mu, self.y_sd = y.mean(0), y.std(0) + 1e-8
         return self
 
     def transform(self, X: np.ndarray, F: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
