@@ -3337,3 +3337,46 @@ while losing the other periods.
 reversal; balance helps the reversal but is noise-level. Both stay in the code, off. The
 result points to inputs that explain falls (import parity, harvest, policy), not to target
 or weighting changes alone.
+
+## D-74. Monthly GRU on the World Bank RTFP maize estimates: looks fine on the estimates, which miss the real fall
+
+**Request (owner, 2026-10-07).** Run the model on `NGA_RTFP_mkt_2007_2026-09-28.xlsx` using the
+estimated close price `c_maize_fao` for every market and month.
+
+**What the file is.** World Bank Real-Time Food Prices, 74 markets, Jan 2007 to Sep 2026. The
+observed maize column (`maize_fao`) is FAO GIEWS, which for Kano, Ibadan, Kaura Namoda,
+Maiduguri ("Monday"), Lagos and Giwa equals FEWS NET's retail price to the naira and adds no
+month FEWS NET lacks; Gombe's comes from another source and runs 0.6x to 1.7x FEWS NET's
+level. `c_maize_fao` is the World Bank's modelled price, present for every month; under our
+market names only Giwa, Gombe, Ibadan, Kaura Namoda and Lagos have any observation, so the
+other 10 series are model output throughout. RTFP re-estimates history as data arrive, so the
+series is not as-published.
+
+**Build** (`src/build_monthly_rtfp.py`, `configs/build3_monthly_fxdaily_rtfp.yaml`): the monthly
+daily-FX GRU (D-66) on a monthly panel May 2012 to Sep 2026 with price = `c_maize_fao`, upstream
+= the upstream market's estimate, drivers from the D-70 extended weekly panel (missing diesel
+months and NDVI after May 2026 carried forward: 245 and 64 market-months). Grid Sept 2015 to Mar
+2026 origins, 1,905 pairs per horizon, actual and naive both the estimate; quarterly retraining.
+
+**Result against the estimates** (`outputs/d74_monthly_rtfp/`):
+
+| | 1 | 3 | 6 |
+|---|---|---|---|
+| GRU / naive MAE | 17.93 / 19.98 | 38.57 / 44.60 | 61.84 / 70.44 |
+| vs naive (DM p) | +10.3% (<.001) | +13.5% (<.001) | +12.2% (<.001) |
+| 2015-19 | -4.7% | -13.0% | -20.3% |
+| 2020-22 | +7.1% | +7.5% | +10.0% |
+| 2023 to Sep 2024 | +22.3% | +37.2% | +35.4% |
+| Oct 2024 to Sep 2026 | +3.6% | -2.8% | -2.0% |
+
+Bias: forecasts too low 55 / 60 / 63% of the time; Mincer-Zarnowitz slope 0.99 / 0.85 / 0.68.
+
+**Against real FEWS NET wholesale prices** (same forecasts, where FEWS NET has a value): the
+estimates sit on average 18% above FEWS NET, and 56% above it from Oct 2024. Out of sample the
+forecasts miss real prices by a MAPE of 61 / 68 / 88%.
+
+**Reading.** On the estimates the model is about level with naive in 2024-26, far closer than
+on real data (D-70 to D-73: -17% to -34%), but only because the estimated series barely shows
+the 2025 collapse (Kano Jul 2026: estimate 544, observed 381). The easier result comes from a
+smoother target, not a better model. Not a usable data source for this workstream; the
+estimates should not be used as inputs or targets for real-price forecasting.
