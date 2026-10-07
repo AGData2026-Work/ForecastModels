@@ -3204,3 +3204,43 @@ naive is equally stale, so it does not change the verdict.
 
 **Status.** D-68 stands as the best model on 2015-2024, but it is not shown to work after
 the reversal. Next: the same test with quarterly retraining (D-71).
+
+## D-71. Out of sample with quarterly retraining: slightly better than frozen, still worse than naive
+
+**Question.** D-70 froze the model at Sept 2024. Production retrains every 13 weeks; does
+learning from the published 2024-26 prices fix the out-of-sample failure?
+
+**How the retrains learn** (`src/data.py`, `src/build_oos_2024_26.py`). The extended panel's
+price column holds the as-published, held-flat values, right for inputs but wrong as
+answers. A separate training-target column holds each month's real FEWS NET value on that
+month's weeks, usable by a retrain only once published (15th of the next month); history rows
+keep the weekly price as before. Months FEWS NET did not collect have no target, so a window
+needing one is dropped. Panels without these columns are unchanged.
+
+**Run.** Same config and grid as D-70; `--cuts` at the production cadence, every 13 weeks from
+2024-09-25 (8 retrains to 2026-06-24); FEWS NET diesel variant.
+
+**What the retrains had to learn from.** A training window needs all three targets (4, 13,
+26 weeks ahead), and the missing months break most of them: windows with any post-Sept-2024
+target grow from 0 at the first cut to 16, 76 (Mar to Dec 2025), 112 and 184 at the last,
+against about 7,700 from 2012-2024.
+
+**Result, 9 continued markets, latest price at most 13 weeks old.**
+
+| | 1 | 3 | 6 |
+|---|---|---|---|
+| naive MAE | 77.39 | 93.31 | 172.13 |
+| frozen (D-70) | 94.07 (-21.5%) | 118.19 (-26.7%) | 197.61 (-14.8%) |
+| quarterly retrain | 93.5 (-20.8%) | 116.0 (-24.3%) | 186.8 (-8.5%) |
+| quarterly vs frozen, DM p | .12 | <.001 | <.001 |
+| quarterly vs naive, DM p | <.001 | <.001 | <.001 |
+| predicted a rise, quarterly (frozen) / prices rose | 81 (81) / 43% | 70 (76) / 44% | 68 (71) / 32% |
+
+Retraining helps a little at 3 and 6 months and mostly once Sept 2025 is published (Oct 2025
+to Mar 2026 targets: 6 months 224 to 209, 3 months 136 to 126), but the model is still
+worse than naive at every horizon and still predicts rises about 70-80% of the time.
+
+**Reading.** Retraining cannot learn a reversal from about 2% new windows. The binding
+constraint is the data: FEWS NET's monthly gaps leave too few complete training windows.
+Options, not yet tried: allow windows with partial targets (a masked loss), or add AFEX
+weekly prices where they exist. Both are code or data changes needing the owner's call.
