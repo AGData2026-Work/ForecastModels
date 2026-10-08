@@ -3387,4 +3387,4 @@ estimates should not be used as inputs or targets for real-price forecasting.
 only) and Monday market, Maiduguri (169 observed months). D-74 used the name matches, Dawanau
 and Maiduguri, so both are pure model output. Against our last-week wholesale price the
 observation-bearing series sit closer from Oct 2024 (Kano +29% rather than +45%; Monday +17%
-rather than +42%). Per-market detail: `Downloads/20261008_FEWSNET-RTFP_MaizePriceComparison_PerMarketMonthly_v1.xlsx`.
+rather than +42%). Per-market detail: `Downloads/20261008_FEWSNET-RTFP_MaizePriceComparison_PerMarketMonthly_v2.xlsx`.
