@@ -3377,6 +3377,14 @@ forecasts miss real prices by a MAPE of 61 / 68 / 88%.
 
 **Reading.** On the estimates the model is about level with naive in 2024-26, far closer than
 on real data (D-70 to D-73: -17% to -34%), but only because the estimated series barely shows
-the 2025 collapse (Kano Jul 2026: estimate 544, observed 381). The easier result comes from a
+the 2025 collapse (RTFP's Kano series, Jul 2026: estimate 544 against its own observation 381; the
+Dawanau series this run used reads 576). The easier result comes from a
 smoother target, not a better model. Not a usable data source for this workstream; the
 estimates should not be used as inputs or targets for real-price forecasting.
+
+**Correction (2026-10-08).** RTFP carries two series each for two of our markets: Dawanau
+(estimate only) and Kano (152 observed months, FEWS NET retail via FAO); Maiduguri (estimate
+only) and Monday market, Maiduguri (169 observed months). D-74 used the name matches, Dawanau
+and Maiduguri, so both are pure model output. Against our last-week wholesale price the
+observation-bearing series sit closer from Oct 2024 (Kano +29% rather than +45%; Monday +17%
+rather than +42%). Per-market detail: `Downloads/20261008_FEWSNET-RTFP_MaizePriceComparison_PerMarketMonthly_v1.xlsx`.

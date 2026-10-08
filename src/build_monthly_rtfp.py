@@ -10,7 +10,9 @@ What this is and is not (read before quoting any result):
 - c_maize_fao is the World Bank's modelled "close" price. For 9 of our 15 markets RTFP holds no
   observed maize at all, so their whole series is model output; for the other 6 (Ibadan, Kaura
   Namoda, Lagos, Kano, Giwa, Gombe) observed values exist for some months and differ from the
-  estimate (Kano Jul 2026: observed 381, estimate 544). RTFP re-estimates history as new data
+  estimate (RTFP's Kano series, Jul 2026: observed 381, estimate 544; RTFP also has an estimate-only
+  Dawanau series, which is the one mapped below, as is the estimate-only Maiduguri rather than Monday
+  market). RTFP re-estimates history as new data
   arrive, so the series is not as-published: every result here carries that look-ahead.
 - Scoring is against the same estimates, so results measure how well the model forecasts the
   World Bank series, not real prices. The grid also carries FEWS NET's real monthly wholesale
