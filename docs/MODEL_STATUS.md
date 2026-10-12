@@ -13,6 +13,16 @@ panel v3 (`src/build_gapfilled_panel.py`, `src/build_monthly_gapfilled.py --publ
 read on the 14th, diesel/rainfall/NDVI one month back, plus the import-parity gap. No soft blend (it lowers
 the 2024-26 result once parity is in). Owner-accepted: recovered May-Aug 2025 values and the fills (D-75).
 
+## Shadow, not production
+| Config | Decision | Outputs |
+|---|---|---|
+| `configs/build3_monthly_parity_fdiesel_l0_lb3.yaml` | D-77 | Serving model `outputs/shadow_monthly_parity_fdiesel_l0_lb3_serving/`; variant E: FEWS NET-only diesel of the origin month, lookback 3 |
+
+Run alongside production on every new month (`src/predict.py` on both run directories, then
+`src/compare_shadow.py --prod outputs/production_monthly_parity_serving --shadow
+outputs/shadow_monthly_parity_fdiesel_l0_lb3_serving`). Switch only if its lead over production holds on
+new months; on 2024-26 history it is +29.9% vs naive in total against production's +28.2% (p .016).
+
 ## Reference, not production
 | Config | Decision | Why it is kept |
 |---|---|---|

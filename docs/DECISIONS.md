@@ -3670,3 +3670,10 @@ E +23.3 p .024); E's total +21.3 (p .48). Every variant improves 1 month in 2024
 catches fewer 1-month falls than production (37-50% vs 44%) except B and D. Reading: FEWS NET-only diesel
 alone does not help (B, D); lookback 3 does at 1 and 3 months in 2024-26. E is the best 2024-26 result,
 small and found on the period it is judged on. Production unchanged.
+
+**D-77 shadow (owner, 2026-10-12).** Variant E (`configs/build3_monthly_parity_fdiesel_l0_lb3.yaml`: FEWS NET-only
+diesel of the origin month, lookback 3) runs alongside production; serving model
+`outputs/shadow_monthly_parity_fdiesel_l0_lb3_serving/` (cut 2026-06-01, 7 seeds), first forecast 2026-10-12.
+`src/compare_shadow.py` scores both models' live forecasts against FEWS NET observed months as they are
+published. Owner's reason to prefer it: one diesel source, published on time since Nov 2025. Switch only if
+its lead holds on new months.

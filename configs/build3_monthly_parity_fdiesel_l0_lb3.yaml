@@ -1,5 +1,6 @@
-# STATUS: ONGOING EXPERIMENT, NOT PRODUCTION (D-77 follow-up). See docs/MODEL_STATUS.md.
-# fdl0_lb3: production parity GRU with FEWS NET-only diesel of the origin month (lag 0), lookback 3.
+# STATUS: SHADOW, NOT PRODUCTION (D-77, 2026-10-12): run alongside production on every new month; switch only
+# if its lead over production holds. See docs/MODEL_STATUS.md.
+# Variant E: production parity GRU with FEWS NET-only diesel of the origin month (lag 0), lookback 3.
 # PARITY GAP: the as-published monthly production config plus one flat feature, log(market price / import
 # parity) at the origin (src/data.py attach_parity; parity = (FOB + freight) x naira rate / 1000 x (1 + duty)
 # from the NADIH volatility workbook). The only change.
@@ -43,7 +44,7 @@
 # (weekly: the day before the origin; monthly: the last day of month o) instead of a
 # month-lagged monthly average from fx_rate.xlsx. The only change from that config.
 build:
-  name: build3_monthly_parity_fdl0_lb3
+  name: build3_monthly_parity_fdiesel_l0_lb3
   note: >
     Build 2 with the regularisation added against overfitting removed, since the
     Week 0 diagnostics indicate under-learning was the binding constraint. Retains
