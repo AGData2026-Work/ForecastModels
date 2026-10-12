@@ -82,6 +82,9 @@ def main() -> None:
                     help="monthly runs: refuse if the panel's last month started more than this "
                          "many months ago (an as-published monthly forecast for month o is made on "
                          "the 15th of o+1, so about 1.5 months is normal)")
+    ap.add_argument("--blend", action="store_true",
+                    help="monthly runs: also write the point-in-time soft blend with the seasonal naive "
+                         "(src/regime_blend_monthly.py), the D-75 production setup")
     ap.add_argument("--device", default="cpu")
     a = ap.parse_args()
 
@@ -173,10 +176,25 @@ def main() -> None:
             preds_this_market.append(scaler.y_inverse(yhat)[0])
         median_yhat = np.median(np.stack(preds_this_market), axis=0)
         for hi, h in enumerate(H):
-            rows.append(dict(market=market, origin=str(last_date.date()), h=h,
+            rows.append(dict(market=market, origin=str(last_date.date()), h=h, origin_price=float(p0),
                              forecast_price=float(p0 * np.exp(median_yhat[hi] + inflation_offsets(panel, i, H)[hi]))))
 
     out = pd.DataFrame(rows)
+    if a.blend:
+        if freq != "MS":
+            raise SystemExit("--blend is the monthly (D-75) blend; the weekly blend is src/regime_blend.py")
+        from regime_blend_monthly import blend
+        pq = pd.read_parquet(cfg["data"]["panel"])
+        long = pd.DataFrame({"market": pq["market"], "month": pd.to_datetime(pq["date"]).dt.strftime("%Y-%m"),
+                             "flag": pq["price_flag"], "price_NGN_per_kg": pq["price"]})
+        d = out.rename(columns={"origin_price": "naive", "forecast_price": "GRU"}).assign(origin=pd.Timestamp(last_date))
+        b = blend(d, long, Path(cfg["data"]["inflation_path"]))
+        out["seasonal_naive"] = b["seasonal_naive"].values
+        out["weight_on_GRU"] = b["weight"].values
+        out["blended_price"] = b["blended"].values
+        out["blend_fallback"] = b["fallback"].values
+        if cfg["data"].get("fx_monthly_cutoff_day"):
+            out.insert(1, "forecast_date", str((last_date + pd.DateOffset(months=1)).date())[:8] + "15")
     predictions_dir = run_dir / "predictions"
     predictions_dir.mkdir(parents=True, exist_ok=True)
     today = pd.Timestamp.now().date().isoformat()

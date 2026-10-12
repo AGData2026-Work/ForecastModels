@@ -3522,3 +3522,10 @@ GRU 0.63; 357-370 forecasts per horizon have no seasonal index yet and stay GRU 
 Aug 2026: -19.8 / +0.4 / +19.5% (GRU alone -28.7 / +1.8 / +9.1%; p .03 / .78 / <.001). The monthly
 production setup is therefore `configs/build3_monthly_fxdaily_gapfilled_pit.yaml` + this blend, pending
 the remaining checks (8, 9, 13) and a recorded production switch.
+
+**D-75 serving (2026-10-12).** Monthly production model trained with `--save-latest-cut-models`
+(`outputs/d75_monthly_gapfilled_pit_serving/`, cut 2026-06-01, 7 seeds). `src/predict.py` now handles monthly
+runs (publication-date FX cutoff, staleness in months) and `--blend` adds the point-in-time soft blend
+(`regime_blend_monthly.blend`, reading observed months from the panel's `price_flag`). First live forecast:
+`outputs/d75_monthly_gapfilled_pit_serving/predictions/2026-10-12.csv`, origin Aug 2026 (forecast date
+15 Sep 2026), 11 markets with an Aug 2026 price, horizons 1/3/6, weight on the GRU 0.3 to 0.5.
