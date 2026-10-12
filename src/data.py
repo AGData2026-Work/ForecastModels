@@ -86,6 +86,9 @@ class Panel:
     # once known. None (the default, every panel without these columns) = targets are `price`.
     target_price: np.ndarray | None = None      # (T, M)
     target_known_idx: np.ndarray | None = None  # (T, M) first panel index at which the target is known
+    # D-75 import parity: landed price of imported maize, NGN/kg, one value per date (national). When set,
+    # build_flat appends log(market price at the origin / parity at the origin) as the last flat feature.
+    parity: np.ndarray | None = None            # (T,)
     # Real-price target (D-73): annual log food-inflation rate known at each date, (T,). When set,
     # training targets are price changes net of expected inflation, rate * h / 52, and forecasts
     # add it back. None (default) = nominal targets, as before.
@@ -290,6 +293,18 @@ def make_exog_point_in_time(p: Panel, panel_path: str | Path) -> None:
         "diesel_cells_missing_after": int(np.isnan(out).sum()),
     }
     p.diesel, p.rainfall, p.ndvi = out, rain, nd
+
+
+def attach_parity(p: Panel, parity_path: str | Path) -> None:
+    """D-75: monthly import parity (columns month 'YYYY-MM', parity_ngn_per_kg) onto a monthly panel.
+    Month o's parity uses month o's world price, freight, naira rate and duty, all public before the
+    15th of o+1, the monthly forecast date. Missing months stay NaN, which drops those windows."""
+    q = pd.read_csv(parity_path)
+    s = q.set_index("month")["parity_ngn_per_kg"]
+    months = p.dates.to_period("M").astype(str)
+    p.parity = np.array([s.get(m, np.nan) for m in months], dtype=float)
+    p.log["parity"] = {"path": str(parity_path), "dates_without_parity": int((~np.isfinite(p.parity)).sum()),
+                       "first": str(s.index.min()), "last": str(s.index.max())}
 
 
 def attach_inflation_drift(p: Panel, inflation_path: str | Path, lag_months: int = 2,
@@ -744,6 +759,11 @@ def build_flat(
         if p.fx_summary is None:
             raise ValueError("use_fx_summary=True but Panel has no fx_summary (call attach_fx_summary)")
         vals.extend(float(v) for v in p.fx_summary[i])
+
+    if p.parity is not None:
+        if not np.isfinite(p.parity[i]) or p.parity[i] <= 0:
+            return np.empty(0), False
+        vals.append(float(np.log(p0) - np.log(p.parity[i])))
 
     arr = np.asarray(vals, dtype=float)
     if arr.size and not np.isfinite(arr).all():

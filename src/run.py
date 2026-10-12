@@ -34,7 +34,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from data import (Scaler, attach_fx_summary, attach_inflation_drift, attach_macro, build_grid_windows,
+from data import (Scaler, attach_fx_summary, attach_inflation_drift, attach_macro, attach_parity, build_grid_windows,
                   inflation_offsets, sequence_channel_names,
                   build_training_windows, flat_feature_names, load_grid, load_panel,
                   make_exog_point_in_time)
@@ -159,6 +159,9 @@ def main() -> None:
                           origin_is_month_end=(freq == "MS"),
                           monthly_cutoff_day=cfg["data"].get("fx_monthly_cutoff_day"),
                           monthly_cutoff_months=cfg["data"].get("fx_monthly_cutoff_months", 1))
+    if cfg["features"].get("parity_path"):
+        # D-75: log(market price / import parity) at the origin, appended last to the flat features.
+        attach_parity(panel, cfg["features"]["parity_path"])
     if cfg["training"].get("real_target", False):
         # D-73: train on price changes net of expected (food) inflation; forecasts add it back.
         attach_inflation_drift(panel, cfg["data"]["inflation_path"],
@@ -392,7 +395,7 @@ def main() -> None:
         n_flat_features=n_flat,
         flat_feature_names=flat_feature_names(H, use_lag52, use_realised, realised_upstream,
                                               driver_source, use_fx_summary,
-                                              panel.fx_summary_names),
+                                              panel.fx_summary_names) + (["parity_gap"] if panel.parity is not None else []),
         train_markets=train_mkts, scored_markets=scored,
         n_retrain_cuts=len(cuts), retrain_every_weeks=cfg["training"]["retrain_every_weeks"],
         config=cfg, panel_log=panel.log, grid_log=glog,

@@ -3621,3 +3621,17 @@ by Nov 2025 and -21% in Jan 2026, after which prices stopped falling. Rank corre
 next domestic change (all markets): 2013-19 -0.01 / -0.12 / -0.22 (1 / 3 / 6 months); 2023-24 -0.25 / -0.53
 / -0.50; 2025-26 -0.40 / -0.68 / -0.75. A wide gap was followed by falls in exactly the period the model
 missed. Unconfirmed: the FOB and freight sources and the duty after Dec 2024. Not yet a model input.
+
+**D-75 parity gap added (2026-10-12).** `configs/build3_monthly_fxdaily_gapfilled_pit_parity.yaml`: the
+as-published monthly production config plus one flat feature, log(market price / import parity) at the
+origin (`src/data.py attach_parity`; parity file `data/external/20261012_NADIH_ImportParity_Maize_Monthly_2006-01_2026-09_v1.csv`
+from the NADIH volatility workbook). 73,219 parameters. Same 4,811 pairs as the base. D-45 bar: PASS at 1 / 3
+/ 6 months (DM p .0003 / <.0001 / <.0001; margin over seed SD 3.2 / 11.6 / 20.6).
+Margins vs naive, GRU base -> GRU with parity (DM p of the difference):
+- All years: +7.0 -> +8.4 (p .19), +21.3 -> +23.2 (.11), +25.6 -> +25.0 (.81); total +21.0 -> +21.6.
+- 2015-19: total -16.8 -> -11.4 (p<.001). 2020-22: +4.9 -> +14.3 (p<.001). 2023 to Sep 2024: +43.9 -> +32.6
+  (worse, p<.001).
+- Oct 2024 to Aug 2026: -28.7 -> -17.1, +1.8 -> +17.1, +9.1 -> +42.6 (all p<.001); total +2.2 -> +28.2.
+With parity the soft blend no longer helps 2024-26 (+6.8 at 3 months and +35.7 at 6 against the GRU's
++17.1 and +42.6). Falls caught at 1 month in 2024-26: 24% (base blend 19%). Caveats: FOB and freight
+sources and the duty after Dec 2024 unconfirmed; the feature was chosen after seeing the 2025 fall.
