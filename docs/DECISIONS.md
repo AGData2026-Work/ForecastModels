@@ -3502,3 +3502,23 @@ GRU's worst years, 2019 and 2022; in 2018 and 2026 it held and the GRU still los
    +30.3% (DM p .026 / <.001 / <.001). Without fills only 18 / 9 / 28 forecasts score in 2024-26.
 **Open.** The 2024-26 monthly result (and the head-to-head there) includes the recovered-value look-ahead
 until the run treats those values as public only from their reporting row.
+
+**D-75 owner decision (2026-10-12): the recovered values and the fills are accepted.** Owner instruction
+("an order from the top"): the 36 May to Aug 2025 values recovered from FEWS NET's `value_one_year_ago`
+are treated as available when the forecasts used them, and the gap fills stay; neither is to be revisited
+as a look-ahead. Recorded so any 2024-26 monthly figure is read with it: those values became public only
+with the May to Aug 2026 rows, so origins from May 2025 to about May 2026 rest on them
+(`outputs/d75_truncation_test.csv`). Also recorded at the owner's request: on 2015 to Sep 2024 the weekly
+production GRU beats the monthly one at 1 and 3 months on matched pairs (check 2), with no winner at 6
+months. The owner's priority for the production choice is the 2024-26 period, where the monthly GRU
+beats the weekly one at all three horizons.
+
+**D-75 soft blend added to the monthly production setup (owner, 2026-10-12).** `src/regime_blend_monthly.py`
+(the monthly counterpart of `src/regime_blend.py`: seasonal index from FEWS NET observed months, volatility
+over 6 monthly changes, z_scale from readings before the origin; all point in time) on
+`outputs/d75_monthly_gapfilled_pit` -> `outputs/regime_blend_soft_monthly_pit/`. Average weight on the
+GRU 0.63; 357-370 forecasts per horizon have no seasonal index yet and stay GRU only. All years: +8.6 /
++19.6 / +23.8% vs naive (GRU alone +7.0 / +21.3 / +25.6%; blend vs GRU p .09 / .07 / .12). Oct 2024 to
+Aug 2026: -19.8 / +0.4 / +19.5% (GRU alone -28.7 / +1.8 / +9.1%; p .03 / .78 / <.001). The monthly
+production setup is therefore `configs/build3_monthly_fxdaily_gapfilled_pit.yaml` + this blend, pending
+the remaining checks (8, 9, 13) and a recorded production switch.

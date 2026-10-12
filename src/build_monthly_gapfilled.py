@@ -38,7 +38,8 @@ LOOKBACK = 6
 DRIVERS = ["diesel", "rainfall_simple_average", "rainfall_inverse_distance", "ndvi_simple_average", "ndvi_inverse_distance"]
 
 
-def build_panel(L: pd.DataFrame, w: pd.DataFrame, published: bool, observed_only: bool = False):
+def build_panel(L: pd.DataFrame, w: pd.DataFrame, published: bool, observed_only: bool = False,
+                driver_lag: int | None = None):
     """Monthly model panel from the gap-filled long panel `L` and the weekly driver panel `w`.
     Returns (panel, log, price, flag, fill_kind, markets)."""
     log: dict = {"published": published, "observed_only": observed_only}
@@ -75,9 +76,10 @@ def build_panel(L: pd.DataFrame, w: pd.DataFrame, published: bool, observed_only
         # Diesel for month M appears on the 20th of M+1 (D-67), after the 15th-of-next-month forecast
         # date; a month's mean rainfall/NDVI needs dekads to its end plus the release lag (D-67 uses 4
         # weeks). At the forecast for month o, both are known through month o-1.
+        lag = 1 if driver_lag is None else driver_lag
         for col in DRIVERS:
-            P[col] = P.groupby("market")[col].shift(1)
-        log["drivers_lagged_months"] = 1
+            P[col] = P.groupby("market")[col].shift(lag)
+        log["drivers_lagged_months"] = lag
     key = list(zip(P["market"], P["month"]))
     P["price"] = [price.get(k, np.nan) for k in key]
     P["price_flag"] = [flag.get(k, "missing") for k in key]
@@ -104,7 +106,8 @@ def build_panel(L: pd.DataFrame, w: pd.DataFrame, published: bool, observed_only
     return P.drop(columns=["month"]), log, price, flag, fill_kind, markets
 
 
-def build_grid(price, flag, fill_kind, markets):
+def build_grid(price, flag, fill_kind, markets, horizons=None):
+    horizons = horizons or HORIZONS
     # right-hand anchor month of every interpolated cell, from its fill_kind text
     anchor = {}
     for (m, mo), fk in fill_kind.items():
@@ -121,7 +124,7 @@ def build_grid(price, flag, fill_kind, markets):
             if any(anchor.get((m, x), o) > o for x in window):
                 drops["interpolated_input_from_after_origin"] += 1
                 continue
-            for h in HORIZONS:
+            for h in horizons:
                 t = o + h
                 act = price.get((m, t), np.nan) if flag.get((m, t)) == "observed" else np.nan
                 if np.isfinite(act):
@@ -139,14 +142,17 @@ def main() -> None:
                          "a month's price is a usable target from its own origin index")
     ap.add_argument("--observed-only", action="store_true",
                     help="sensitivity: drop every fill, FEWS NET observed prices only")
+    ap.add_argument("--driver-lag", type=int, default=None, help="months diesel/rainfall/NDVI lag (published default 1)")
+    ap.add_argument("--horizons", type=int, nargs="+", default=None, help="grid horizons (default 1 3 6)")
+    ap.add_argument("--suffix", default=None, help="override the output file suffix")
     a = ap.parse_args()
-    sfx = ("_pit" if a.published else "") + ("_obsonly" if a.observed_only else "")
+    sfx = a.suffix if a.suffix is not None else ("_pit" if a.published else "") + ("_obsonly" if a.observed_only else "")
     P, log, price, flag, fill_kind, markets = build_panel(
         pd.read_excel(a.filled, "Long_panel"), pd.read_parquet("data/panel_weekly_oos2026_fewsdiesel.parquet"),
-        a.published, a.observed_only)
+        a.published, a.observed_only, a.driver_lag)
     log["source"] = a.filled
     P.to_parquet(f"data/panel_monthly_gapfilled{sfx}.parquet", index=False)
-    G, drops = build_grid(price, flag, fill_kind, markets)
+    G, drops = build_grid(price, flag, fill_kind, markets, a.horizons)
     G.to_parquet(f"data/monthly_grid_gapfilled{sfx}.parquet", index=False)
     log["grid"] = {"rows_by_horizon": G.groupby("horizon").size().to_dict(), "origins_dropped": drops,
                    "rows_with_filled_origin_by_horizon": G[G.origin_flag != "observed"].groupby("horizon").size().to_dict(),
