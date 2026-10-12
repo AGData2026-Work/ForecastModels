@@ -388,7 +388,7 @@ def _fx_daily_features(daily_path: str | Path, cutoffs: pd.DatetimeIndex) -> tup
 def attach_fx_summary(p: Panel, fx_path: str | Path, inflation_path: str | Path,
                       fx_lag_months: int = 1, inflation_lag_months: int = 2,
                       keep: list[str] | None = None, fx_daily_path: str | Path | None = None,
-                      origin_is_month_end: bool = False) -> None:
+                      origin_is_month_end: bool = False, monthly_cutoff_day: int | None = None) -> None:
     """FX restructuring option 2. Six bounded flat features at each date, computed on
     the monthly national series and then looked up for the latest month that would have
     been published by that date (lags as attach_macro):
@@ -431,6 +431,10 @@ def attach_fx_summary(p: Panel, fx_path: str | Path, inflation_path: str | Path,
         # month o for a month-end origin. fx_lag_months no longer applies to FX.
         cut = (p.dates.to_period("M").to_timestamp(how="end").normalize() if origin_is_month_end
                else p.dates - pd.Timedelta(days=1))
+        if origin_is_month_end and monthly_cutoff_day:
+            # D-75 as published: the forecast for month o is made on day monthly_cutoff_day + 1 of
+            # month o+1 (after FEWS NET's mid-month release); FX is read the day before.
+            cut = (p.dates + pd.DateOffset(months=1)) + pd.Timedelta(days=monthly_cutoff_day - 1)
         fx_rows, daily_log = _fx_daily_features(fx_daily_path, cut)
     X = np.column_stack([fx_rows[:, :3], in_rows, fx_rows[:, 3:]])
     names = ["fx_dep3_rank", "fx_dep6_rank", "fx_dep12_rank", "infl_level_rank",
@@ -444,7 +448,7 @@ def attach_fx_summary(p: Panel, fx_path: str | Path, inflation_path: str | Path,
         X, names = X[:, idx], [names[i] for i in idx]
     p.fx_summary, p.fx_summary_names = X, names
     p.log["fx_summary"] = {"fx_lag_months": None if fx_daily_path else fx_lag_months,
-                           "fx_daily": daily_log,
+                           "fx_daily": daily_log, "monthly_cutoff_day": monthly_cutoff_day,
                            "inflation_lag_months": inflation_lag_months,
                            "devaluation_months": [str(m) for m, d in zip(f.index, dev) if d],
                            "dates_with_missing_feature": int((~np.isfinite(X)).any(axis=1).sum())}

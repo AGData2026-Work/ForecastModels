@@ -156,7 +156,8 @@ def main() -> None:
                           inflation_lag_months=cfg["data"].get("inflation_lag_months", 2),
                           keep=cfg["features"].get("fx_summary_subset"),
                           fx_daily_path=cfg["data"].get("fx_daily_path"),
-                          origin_is_month_end=(freq == "MS"))
+                          origin_is_month_end=(freq == "MS"),
+                          monthly_cutoff_day=cfg["data"].get("fx_monthly_cutoff_day"))
     if cfg["training"].get("real_target", False):
         # D-73: train on price changes net of expected (food) inflation; forecasts add it back.
         attach_inflation_drift(panel, cfg["data"]["inflation_path"],

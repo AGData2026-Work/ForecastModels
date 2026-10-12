@@ -5,7 +5,7 @@ monthly daily-FX variant on it).
     python src/build_monthly_gapfilled.py --filled <20261012_FEWSNET_Maize_Monthly_GapFilled_Panel_v2.xlsx>
 
 Writes data/panel_monthly_gapfilled.parquet, data/monthly_grid_gapfilled.parquet,
-data/panel_monthly_gapfilled.log.json.
+data/panel_monthly_gapfilled.log.json (with --published: the same names ending _pit; see that flag).
 
 Construction (May 2012 to Aug 2026, month-start dates, the monthly panel's layout):
 - price: the gap-filled panel's value (FEWS NET API monthly where observed; AFEX / NAERLS old crop /
@@ -38,8 +38,13 @@ LOOKBACK = 6
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--filled", required=True)
+    ap.add_argument("--published", action="store_true",
+                    help="as-published variant: the forecast for month o is made on the 15th of o+1 "
+                         "(after FEWS NET's release of month o); diesel, rainfall and NDVI lag one month; "
+                         "a month's price is a usable target from its own origin index")
     a = ap.parse_args()
-    log: dict = {"source": a.filled}
+    sfx = "_pit" if a.published else ""
+    log: dict = {"source": a.filled, "published": a.published}
     L = pd.read_excel(a.filled, "Long_panel")
     L["month"] = pd.PeriodIndex(L["month"], freq="M")
     months = pd.period_range("2012-05", "2026-08", freq="M")
@@ -67,13 +72,22 @@ def main() -> None:
         P[col] = P.groupby("market")[col].transform(lambda s: s.ffill())
         carried[col] = int((before & P[col].notna()).sum())
     log["driver_months_carried_forward"] = carried
+    if a.published:
+        # Diesel for month M appears on the 20th of M+1 (D-67), after the 15th-of-next-month forecast
+        # date; a month's mean rainfall/NDVI needs dekads to its end plus the release lag (D-67 uses 4
+        # weeks). At the forecast for month o, both are known through month o-1.
+        for col in ["diesel", "rainfall_simple_average", "rainfall_inverse_distance", "ndvi_simple_average", "ndvi_inverse_distance"]:
+            P[col] = P.groupby("market")[col].shift(1)
+        log["drivers_lagged_months"] = 1
     key = list(zip(P["market"], P["month"]))
     P["price"] = [price.get(k, np.nan) for k in key]
     P["price_flag"] = [flag.get(k, "missing") for k in key]
     P["is_proxy_price"] = P["price_flag"].str.startswith("filled")
     P["target_price"] = np.where(P["price_flag"] == "observed", P["price"], np.nan)
     P["target_from_price"] = False
-    P["target_known_date"] = (P["month"] + 1).dt.to_timestamp()
+    # month-end design: month t is known by the end of t+1. As-published design: the origin index of
+    # month o already stands for the 15th of o+1, so month t is known from its own index.
+    P["target_known_date"] = (P["month"] + (0 if a.published else 1)).dt.to_timestamp()
     P["upstream_price"] = [price.get((u, mo), np.nan) if isinstance(u, str) else np.nan
                            for u, mo in zip(P["upstream_market"], P["month"])]
     for col, v in [("n_price_weeks", 0), ("n_weeks", 0), ("n_proxy_weeks", 0), ("share_interpolated_diesel", 1.0),
@@ -88,7 +102,7 @@ def main() -> None:
     P["market_id"] = P["market_id"].astype("int8")
     log["price_cells_by_flag"] = P["price_flag"].value_counts().to_dict()
     log["target_cells_observed"] = int(P["target_price"].notna().sum())
-    P.drop(columns=["month"]).to_parquet("data/panel_monthly_gapfilled.parquet", index=False)
+    P.drop(columns=["month"]).to_parquet(f"data/panel_monthly_gapfilled{sfx}.parquet", index=False)
 
     # right-hand anchor month of every interpolated cell, from its fill_kind text
     anchor = {}
@@ -113,11 +127,11 @@ def main() -> None:
                     rows.append(dict(market=m, horizon=h, origin=o.to_timestamp(), target=t.to_timestamp(),
                                      actual=act, naive=p0, panel_fe=np.nan, origin_flag=flag.get((m, o))))
     G = pd.DataFrame(rows)
-    G.to_parquet("data/monthly_grid_gapfilled.parquet", index=False)
+    G.to_parquet(f"data/monthly_grid_gapfilled{sfx}.parquet", index=False)
     log["grid"] = {"rows_by_horizon": G.groupby("horizon").size().to_dict(), "origins_dropped": drops,
                    "rows_with_filled_origin_by_horizon": G[G.origin_flag != "observed"].groupby("horizon").size().to_dict(),
                    "first_origin": str(G["origin"].min().date()), "last_origin": str(G["origin"].max().date())}
-    json.dump(log, open("data/panel_monthly_gapfilled.log.json", "w"), indent=2, default=str)
+    json.dump(log, open(f"data/panel_monthly_gapfilled{sfx}.log.json", "w"), indent=2, default=str)
     print(json.dumps(log, indent=1, default=str))
 
 

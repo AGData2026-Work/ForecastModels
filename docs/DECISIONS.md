@@ -3440,7 +3440,7 @@ replace: v2's 4 Dandume stand-in fills (AFEX Bakori) missed by 2.9% on average; 
 interpolation would have missed by 9.6% (14.3% in the third month), carry-forward by 18.1%, AFEX Kano
 by 21-35%, which supports both the 2-month cap and leaving Kano unfilled. Panel v3
 (`Downloads/20261012_FEWSNET_Maize_Monthly_GapFilled_Panel_v3.xlsx`); the v2-panel run is kept at
-`outputs/d75_monthly_gapfilled_v2panel_superseded/`.
+`outputs/_archive/20261012_retired_v2panel/d75_monthly_gapfilled/` (retired 2026-10-12, with the v2 panel and its results workbook moved to `Downloads/_retired_20261012/`).
 
 | Oct 2024 to Aug 2026 | 1 month | 3 months | 6 months |
 |---|---|---|---|
@@ -3452,3 +3452,29 @@ vs naive. On 2024-26 the monthly GRU loses at 1 month, ties at 3 and wins at 6 (
 43.5%). Not comparable to the weekly D-70 to D-73 test: monthly targets are month values, diesel and
 climate are not as-published, filled prices are inputs, and a month-end origin ignores FEWS NET's
 mid-next-month release. Deliverable: `Downloads/20261012_FEWSNET-GRU_Monthly_GapFilled_PeriodMarket_v2.xlsx`.
+
+**D-75 as published (2026-10-12).** `configs/build3_monthly_fxdaily_gapfilled_pit.yaml`,
+`src/build_monthly_gapfilled.py --published`: the forecast for month o is made on the 15th of o+1, after
+FEWS NET's API release of month o (assumed, as D-70); FX read on the 14th (`fx_monthly_cutoff_day`, new in
+`attach_fx_summary`; longest gap to a CBN rate day 4 days); diesel, rainfall and NDVI through month o-1
+(diesel for month M public on the 20th of M+1, climate as D-67); training targets usable from their own
+month. Same v3 panel, grid and model. `outputs/d75_monthly_gapfilled_pit/h{1,3,6}`.
+
+| vs naive (MAE) | 1 month | 3 months | 6 months |
+|---|---|---|---|
+| All, as published (n 1,674 / 1,589 / 1,548) | +7.0% (p=.003) | +21.3% (p<.001) | +25.6% (p<.001) |
+| All, month-end (above) | +8.7% | +23.0% | +21.8% |
+| As published vs month-end, DM on the same pairs | worse, p=.023 | worse, p=.036 | better, p=.003 |
+| 2015-19 | -9.3% | -15.9% | -20.1% |
+| 2020-22 | +7.2% | +7.5% | +1.3% (p=.82) |
+| 2023 to Sep 2024 | +20.3% | +41.6% | +53.9% |
+| Oct 2024 to Aug 2026 (n 146 / 102 / 114) | -28.7% | +1.8% (p=.65) | +9.1% |
+
+Applying the release lags costs a little at 1 and 3 months, as the weekly D-67 audit found, and helps
+at 6 months, mainly by losing less in 2015-19. On 2024-26 the as-published monthly GRU loses at 1 month,
+ties at 3 and wins at 6. It is still not like for like with the weekly test (month values as targets,
+filled prices as inputs). Deliverable:
+`Downloads/20261012_FEWSNET-GRU_Monthly_GapFilled_AsPublished_PeriodMarket_v1.xlsx`. Year-on-year check of
+the month-end run against a point-in-time seasonal naive:
+`Downloads/20261012_FEWSNET-GRU_Monthly_GapFilled_YearOnYear_v1.xlsx` (the seasonal pattern broke in the
+GRU's worst years, 2019 and 2022; in 2018 and 2026 it held and the GRU still lost to it).
