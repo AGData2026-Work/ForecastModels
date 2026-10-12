@@ -3611,3 +3611,13 @@ at 1 / 3 / 6 months (base: +7.0 / +21.3 / +25.6 and -28.7 / +1.8 / +9.1).
   worse in 2024-26. Lookback 12: worse in 2024-26 at every horizon. Hidden 64: worse at every horizon over
   all years. Hidden 256: no significant change. Lookback 3 is a candidate, but it was found by looking at
   2024-26, the period it would be judged on.
+
+**D-75 import parity from the NADIH volatility workbook (2026-10-12).** `20261012_NADIH_FEWSNET_Maize-Volatility_v3.xlsx`
+(sheet `Parity price`) carries monthly FOB maize (US$/t), naira rate, freight (US$/t) and customs duty, Jan
+2006 to Sep 2026; landed parity at Apapa = (FOB + freight) x rate / 1000 x (1 + duty). Duty in the sheet:
+30% to May 2023, 5% from Jun 2023, 0 from Aug 2024 (the duty-free window; the sheet keeps 0 to Sep 2026,
+unconfirmed). Average FEWS NET price against parity: +154% in Aug 2024, then closing every month to -10%
+by Nov 2025 and -21% in Jan 2026, after which prices stopped falling. Rank correlation of the gap with the
+next domestic change (all markets): 2013-19 -0.01 / -0.12 / -0.22 (1 / 3 / 6 months); 2023-24 -0.25 / -0.53
+/ -0.50; 2025-26 -0.40 / -0.68 / -0.75. A wide gap was followed by falls in exactly the period the model
+missed. Unconfirmed: the FOB and freight sources and the duty after Dec 2024. Not yet a model input.
