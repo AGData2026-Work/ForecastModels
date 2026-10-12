@@ -3573,3 +3573,13 @@ months) and a 1.5x amplification all lower the 2024-26 margin over naive (6 mont
 corrected, +3.4% amplified). Reading: the bias is lag at turning points, the model following the trend it
 has seen; the soft blend is the only adjustment that helps 2024-26. Fixes would need new information
 (import volumes, parallel FX) or retraining (D-73's direction balance, not yet tried on monthly).
+
+**D-75 losses to weekly, decomposed (2026-10-12)**, on the matched pairs of check 2. Each model is scored
+against its own starting price (monthly: the month's FEWS NET value; weekly: the latest weekly price).
+2015 to Sep 2024: the weekly starting price is 13.2% closer to the target month at 1 month (fresher data,
+even though issued about 22 days earlier), 0.4-0.5% at 3 and 6. Skill over its own naive, monthly vs
+weekly: +14.5 vs +12.8% (1 month), +26.6 vs +31.6% (3), +24.9 vs +22.0% (6). So the monthly model is not
+worse at 1 month (the weekly edge is fresher data), is about 5 points less skilled at 3 months, and
+better at 6. In 2015-19 both lose to their naive (monthly -11 / -17 / -15%, weekly -7 / -16 / -10%). In
+2025-26 the weekly starting price was far off (its naive 257% worse than monthly's at 1 month), so the
+weekly collapse there is largely stale weekly data.
