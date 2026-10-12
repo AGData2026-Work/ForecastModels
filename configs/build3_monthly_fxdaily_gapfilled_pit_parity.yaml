@@ -1,4 +1,5 @@
-# STATUS: ONGOING EXPERIMENT, NOT PRODUCTION (D-75). See docs/MODEL_STATUS.md.
+# STATUS: PRODUCTION. FEWSNET production model since D-77 (2026-10-12): monthly, as published, gap-filled panel v3,
+# import-parity gap, no blend. See docs/MODEL_STATUS.md.
 # PARITY GAP: the as-published monthly production config plus one flat feature, log(market price / import
 # parity) at the origin (src/data.py attach_parity; parity = (FOB + freight) x naira rate / 1000 x (1 + duty)
 # from the NADIH volatility workbook). The only change.

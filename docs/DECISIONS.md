@@ -3635,3 +3635,22 @@ Margins vs naive, GRU base -> GRU with parity (DM p of the difference):
 With parity the soft blend no longer helps 2024-26 (+6.8 at 3 months and +35.7 at 6 against the GRU's
 +17.1 and +42.6). Falls caught at 1 month in 2024-26: 24% (base blend 19%). Caveats: FOB and freight
 sources and the duty after Dec 2024 unconfirmed; the feature was chosen after seeing the 2025 fall.
+
+## D-77. Owner decision: the monthly parity GRU is the FEWSNET production model
+
+**Decision (owner, 2026-10-12).** Production moves from the weekly D-68 GRU
+(`configs/build3_fxdaily_fxonly_pit.yaml`, now the reference) to
+`configs/build3_monthly_fxdaily_gapfilled_pit_parity.yaml`: the monthly as-published GRU on gap-filled panel
+v3 with the import-parity gap (D-75), without the soft blend. Basis: 2024-26, the owner's priority period,
+-17.1 / +17.1 / +42.6% vs naive at 1 / 3 / 6 months (total +28.2%), D-45 PASS at every horizon; all years
++8.4 / +23.2 / +25.0%. Serving model: `outputs/production_monthly_parity_serving/` (cut 2026-06-01, 7 seeds),
+`python src/predict.py --run-dir outputs/production_monthly_parity_serving`; first forecast 2026-10-12
+(prices to Aug 2026, forecast date 15 Sep 2026, 11 markets).
+
+**Falls caught** (share of real price falls the forecast called as falls), 2024-26, old monthly blend ->
+parity GRU: 1 month 19% -> 44%; 3 months 29% -> 62%; 6 months 72% -> 80%. Error in falling months, 6
+months: 190 -> 119 NGN/kg (naive 200). All years: 45 -> 50%, 56 -> 57%, 60 -> 54% (rises caught unchanged).
+
+**Known limits.** Loses to naive at 1 month in 2024-26; weekly was better on 2015-24 at 1 and 3 months
+(fresher data); the recovered values and fills are owner-accepted (D-75); parity's FOB and freight sources
+and the post-Dec-2024 duty are unconfirmed; the parity input was chosen after seeing the 2025 fall.
