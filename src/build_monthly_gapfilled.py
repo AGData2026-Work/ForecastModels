@@ -39,7 +39,7 @@ DRIVERS = ["diesel", "rainfall_simple_average", "rainfall_inverse_distance", "nd
 
 
 def build_panel(L: pd.DataFrame, w: pd.DataFrame, published: bool, observed_only: bool = False,
-                driver_lag: int | None = None):
+                driver_lag: int | None = None, diesel: pd.DataFrame | None = None):
     """Monthly model panel from the gap-filled long panel `L` and the weekly driver panel `w`.
     Returns (panel, log, price, flag, fill_kind, markets)."""
     log: dict = {"published": published, "observed_only": observed_only}
@@ -66,6 +66,14 @@ def build_panel(L: pd.DataFrame, w: pd.DataFrame, published: bool, observed_only
     P = drv.reindex(pd.MultiIndex.from_product([markets, months], names=["market", "month"])).reset_index()
     for col in ["upstream_market", "upstream_lag_weeks", "market_kind", "state", "market_id"]:
         P[col] = P.groupby("market")[col].transform(lambda s: s.ffill().bfill())
+    if diesel is not None:
+        # FEWS NET-only diesel (owner request 2026-10-13): one source for the whole history instead of
+        # NBS state diesel back-extended before Jun 2015 and spliced to FEWS NET after Oct 2024. `diesel` is
+        # month x market, NGN/litre. Months before a market's first FEWS NET value stay missing.
+        dz = diesel.copy(); dz.index = pd.PeriodIndex(dz.index, freq="M")
+        P["diesel"] = [dz[m].get(mo, np.nan) if m in dz.columns else np.nan for m, mo in zip(P["market"], P["month"])]
+        log["diesel_source"] = "FEWS NET API retail diesel"
+        log["diesel_months_before_first_value"] = int(P.groupby("market")["diesel"].transform(lambda s: s.ffill().isna()).sum())
     carried = {}
     for col in DRIVERS:
         before = P[col].isna()
@@ -145,11 +153,14 @@ def main() -> None:
     ap.add_argument("--driver-lag", type=int, default=None, help="months diesel/rainfall/NDVI lag (published default 1)")
     ap.add_argument("--horizons", type=int, nargs="+", default=None, help="grid horizons (default 1 3 6)")
     ap.add_argument("--suffix", default=None, help="override the output file suffix")
+    ap.add_argument("--fewsnet-diesel", default=None,
+                    help="FEWS NET API export (.xlsx, sheet diesel_retail_litre): use it as the only diesel source")
     a = ap.parse_args()
     sfx = a.suffix if a.suffix is not None else ("_pit" if a.published else "") + ("_obsonly" if a.observed_only else "")
     P, log, price, flag, fill_kind, markets = build_panel(
         pd.read_excel(a.filled, "Long_panel"), pd.read_parquet("data/panel_weekly_oos2026_fewsdiesel.parquet"),
-        a.published, a.observed_only, a.driver_lag)
+        a.published, a.observed_only, a.driver_lag,
+        pd.read_excel(a.fewsnet_diesel, "diesel_retail_litre").set_index("month") if a.fewsnet_diesel else None)
     log["source"] = a.filled
     P.to_parquet(f"data/panel_monthly_gapfilled{sfx}.parquet", index=False)
     G, drops = build_grid(price, flag, fill_kind, markets, a.horizons)

@@ -3654,3 +3654,19 @@ months: 190 -> 119 NGN/kg (naive 200). All years: 45 -> 50%, 56 -> 57%, 60 -> 54
 **Known limits.** Loses to naive at 1 month in 2024-26; weekly was better on 2015-24 at 1 and 3 months
 (fresher data); the recovered values and fills are owner-accepted (D-75); parity's FOB and freight sources
 and the post-Dec-2024 duty are unconfirmed; the parity input was chosen after seeing the 2025 fall.
+
+**D-77 follow-up: FEWS NET-only diesel and lookback 3 (2026-10-12)**, each on the production parity GRU,
+same pairs, `outputs/d77_checks/` (summary.csv), configs `configs/_checks/build3_monthly_parity_*.yaml`;
+`src/build_monthly_gapfilled.py --fewsnet-diesel` (FEWS NET retail diesel for every month; 423
+market-months before a market's first FEWS NET diesel stay missing, read as no change). Margin vs naive,
+Oct 2024 to Aug 2026, 1 / 3 / 6 / total (production -17.1 / +17.1 / +42.6 / +28.2):
+- A current diesel, lookback 3: -13.6 / +20.3 / +42.6 / +29.4 (total vs production p .10)
+- B FEWS diesel lag 1, lookback 6: -13.5 / +13.5 / +37.4 / +24.6 (worse, p .0001)
+- C FEWS diesel lag 1, lookback 3: -13.2 / +20.7 / +41.3 / +28.8 (p .44)
+- D FEWS diesel lag 0, lookback 6: -16.5 / +12.0 / +37.3 / +23.7 (worse, p <.0001)
+- E FEWS diesel lag 0, lookback 3: -13.2 / +17.5 / +44.4 / +29.9 (better, p .016)
+All years (production +8.4 / +23.2 / +25.0 / +21.6): every variant is lower at 6 months (A +23.2 p .004,
+E +23.3 p .024); E's total +21.3 (p .48). Every variant improves 1 month in 2024-26 by 3 to 4 points but
+catches fewer 1-month falls than production (37-50% vs 44%) except B and D. Reading: FEWS NET-only diesel
+alone does not help (B, D); lookback 3 does at 1 and 3 months in 2024-26. E is the best 2024-26 result,
+small and found on the period it is judged on. Production unchanged.
