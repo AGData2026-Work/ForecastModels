@@ -3595,3 +3595,19 @@ lower prices; good 2024 and 2025 harvests; maize down more than 50% nationally i
 exist only quarterly from NBS (a few months' lag) and as annual USDA estimates, so as a 1-month warning
 they would arrive late; a policy-event marker and a monthly import-parity gap (world maize price in naira
 against the domestic price) are available sooner. Hypothesis kept open for the expert meeting.
+
+**D-75 checks 8, 9, 12 results (2026-10-12)**, each against the as-published base run on the same pairs
+(`outputs/d75_checks/`, configs in `configs/_checks/`). Margins vs naive, all years / Oct 2024 to Aug 2026,
+at 1 / 3 / 6 months (base: +7.0 / +21.3 / +25.6 and -28.7 / +1.8 / +9.1).
+- Reproducibility: rerun of h1 identical (max difference 0.0).
+- Release lags. Diesel, rainfall, NDVI two months back: all years unchanged (DM p about .5); 2024-26
+  -25.2 / +10.0 / +9.7 (better at 1 and 3 months, p .03 / .001). Naira read on the 7th: all years +7.8 /
+  +22.8 / +25.0; 2024-26 -36.9 / +5.5 / +14.1 (worse at 1 month, better at 3 and 6). FEWS NET a month late
+  (prices through o, forecast on the 15th of o+2, scored on the same target months): MAE 56% / 9% / 10%
+  higher than the base at 1 / 3 / 6 months over all years, 81% / 35% / 1% higher in 2024-26. The FEWS NET
+  release date is the assumption the results depend on; the driver lags are not.
+- Brackets. Lookback 3: all years about equal (+8.0 / +21.3 / +24.1); 2024-26 -21.0 / +7.7 / +13.9, better
+  at every horizon (p .000 / .008 / .008). Lookback 9: better at 1 month over all years (+9.4, p .001),
+  worse in 2024-26. Lookback 12: worse in 2024-26 at every horizon. Hidden 64: worse at every horizon over
+  all years. Hidden 256: no significant change. Lookback 3 is a candidate, but it was found by looking at
+  2024-26, the period it would be judged on.
