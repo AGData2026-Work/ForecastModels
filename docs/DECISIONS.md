@@ -3430,3 +3430,25 @@ Aug 2025 gap (4 months, left unfilled by the 2-month rule) breaks every 6-month 
 12-month anchors through mid-2026, so only 29 / 9 / 36 forecasts score, and the 1-month loss rests on
 29 of them. Monthly remains pinned; production stays weekly (D-68). Deliverable:
 `Downloads/20261012_FEWSNET-GRU_Monthly_GapFilled_PeriodMarket_v1.xlsx`.
+
+**D-75 update (2026-10-12): May to Aug 2025 recovered, panel v3, rerun.** FEWS NET's own export
+(`Downloads/20261012_FEWSNET Price Data_v1.xlsx`) carries `value_one_year_ago` on the May to Aug 2026
+rows, which gives May to Aug 2025 for 9 markets (Biu, Damaturu, Dandume, Ibadan, Kano, Kaura Namoda,
+Maiduguri, Mubi, Potiskum): 36 market-months never published as a value. Every route that overlaps a
+published value agrees exactly (2,259 of 2,259), so they enter as observed. Check of the fills they
+replace: v2's 4 Dandume stand-in fills (AFEX Bakori) missed by 2.9% on average; a 4-month linear
+interpolation would have missed by 9.6% (14.3% in the third month), carry-forward by 18.1%, AFEX Kano
+by 21-35%, which supports both the 2-month cap and leaving Kano unfilled. Panel v3
+(`Downloads/20261012_FEWSNET_Maize_Monthly_GapFilled_Panel_v3.xlsx`); the v2-panel run is kept at
+`outputs/d75_monthly_gapfilled_v2panel_superseded/`.
+
+| Oct 2024 to Aug 2026 | 1 month | 3 months | 6 months |
+|---|---|---|---|
+| v2 panel (n 29 / 9 / 36) | -135.9% | +9.7% | +11.8% |
+| v3 panel (n 146 / 102 / 114) | -28.4% (p<.001) | +3.4% (p=.37) | +15.6% (p<.001) |
+
+2015 to Sep 2024 is unchanged to the decimal (no history changed). All periods: +8.7 / +23.0 / +21.8%
+vs naive. On 2024-26 the monthly GRU loses at 1 month, ties at 3 and wins at 6 (MAPE 34.8% vs naive
+43.5%). Not comparable to the weekly D-70 to D-73 test: monthly targets are month values, diesel and
+climate are not as-published, filled prices are inputs, and a month-end origin ignores FEWS NET's
+mid-next-month release. Deliverable: `Downloads/20261012_FEWSNET-GRU_Monthly_GapFilled_PeriodMarket_v2.xlsx`.
