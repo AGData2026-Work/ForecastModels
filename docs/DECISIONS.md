@@ -3559,3 +3559,17 @@ last month's direction called 83% of the big moves. FEWS NET-only diesel rerun p
 **Direction follow-up (owner, 2026-10-12).** The weak calling of falls (19% of falls at 1 month in
 2024-26) is parked until import-volume data are monitored, to test whether they catch these falls, and
 until the pending expert meeting on the 2025 import influx.
+
+**D-75 bias check: "too low, moves too little" (2026-10-12)**, monthly as-published GRU and blend. The bias
+is not fixed in sign: forecasts are too low in rising spells (2023-24: 86% too low at 6 months, mean -14%)
+and too high in falling ones (2024-26: 82% too high at 6 months, mean +35%). Forecast moves are about half
+the size of real moves (move ratio 0.4-0.6 in every period); the median of 7 seeds is not the cause
+(single seeds move about as little). Mincer-Zarnowitz slope by period: about 0 in 2015-19 (moves carry no
+information there), about 1 in 2020-24 (well sized), 1.4 at 6 months in 2024-26 (too timid). Correction
+of earlier wording: an overall slope below 1 (0.6-0.8 here, 0.68 for weekly production) means forecast
+moves are larger than their accuracy supports, not that the model under-reacts. Post-hoc fixes, all point
+in time, make things worse: a mean-bias correction, a Mincer-Zarnowitz rescale (all history or last 36
+months) and a 1.5x amplification all lower the 2024-26 margin over naive (6 months: +9.1% GRU, -16 to -25%
+corrected, +3.4% amplified). Reading: the bias is lag at turning points, the model following the trend it
+has seen; the soft blend is the only adjustment that helps 2024-26. Fixes would need new information
+(import volumes, parallel FX) or retraining (D-73's direction balance, not yet tried on monthly).
