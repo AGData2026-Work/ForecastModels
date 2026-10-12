@@ -3388,3 +3388,45 @@ only) and Monday market, Maiduguri (169 observed months). D-74 used the name mat
 and Maiduguri, so both are pure model output. Against our last-week wholesale price the
 observation-bearing series sit closer from Oct 2024 (Kano +29% rather than +45%; Monday +17%
 rather than +42%). Per-market detail: `Downloads/20261008_FEWSNET-RTFP_MaizePriceComparison_PerMarketMonthly_v2.xlsx`.
+
+---
+
+## D-75. Monthly daily-FX GRU on the gap-filled FEWS NET panel: same picture as D-66, too little 2024-26 data to judge
+
+**Request (owner, 2026-10-12).** Run the best monthly variant (D-66, `configs/build3_monthly_fxdaily_fxonly.yaml`)
+on the gap-filled monthly panel, with results by period and by market.
+
+**Data** (`src/build_monthly_gapfilled.py`, `configs/build3_monthly_fxdaily_gapfilled.yaml`). Prices from
+`Downloads/20261012_FEWSNET_Maize_Monthly_GapFilled_Panel_v2.xlsx`: FEWS NET API monthly values (2,184
+observed market-months, May 2012 to Aug 2026), plus 34 direct and 19 same-state fills from AFEX, NAERLS
+(old crop only) and the Kaduna/Kano other source, and 78 linear fills of FEWS NET gaps of 2 months or
+less. Rules: observed values never changed; level ratio = median FEWS/source over months before the gap
+(at least 6, else unadjusted and flagged); Kano not source-filled (weak alignment). Training targets are
+FEWS NET observed values only (`target_price`, known from the next month). load_panel's own
+interpolation is off (`price_interp_limit_weeks: 0`; `_interpolate_within_span` now returns unchanged
+for a limit of 0). Drivers as the RTFP build (D-74): monthly means of the extended weekly panel, not as
+published. Grid: 15 markets, origins Sep 2015 to Jul 2026, actuals FEWS NET observed only; 50 origins
+dropped because an interpolated input was anchored after the origin, 122 for no origin price. One run
+per horizon (`--require-horizons h`), `outputs/d75_monthly_gapfilled/h{1,3,6}`.
+
+**Result** (GRU vs naive, MAE, positive = GRU better):
+
+| | 1 month | 3 months | 6 months |
+|---|---|---|---|
+| All (n 1,557 / 1,496 / 1,470) | +10.4% (p<.001) | +25.2% (p<.001) | +22.4% (p<.001) |
+| 2015-19 | -4.0% | -17.3% | -33.7% |
+| 2020-22 | +9.7% | +14.0% | +6.7% (p=.25) |
+| 2023 to Sep 2024 | +20.9% | +42.3% | +46.4% |
+| Oct 2024 to Aug 2026 (n 29 / 9 / 36) | -135.9% | +9.7% | +11.8% |
+| D-66 on common pairs to Mar 2024, gap-filled vs original | +16.8 vs +14.2% | +21.8 vs +20.7% | +24.1 vs +27.3% |
+
+MAPE 8.2 / 16.6 / 23.8% (naive 8.8 / 18.0 / 23.0%). Every market beats naive at 3 and 6 months; Ibadan
+loses at 1 month (-5.8%). Bias: under-forecasts 53 / 57 / 60% of the time; Mincer-Zarnowitz slope 0.88 /
+0.62 / 0.41.
+
+**Reading.** On 2015-2024 the gap-filled panel changes little against D-66 (common pairs within 3
+points, better at 1 and 3 months, worse at 6). The 2024-26 period cannot be judged: FEWS NET's May to
+Aug 2025 gap (4 months, left unfilled by the 2-month rule) breaks every 6-month input window and the
+12-month anchors through mid-2026, so only 29 / 9 / 36 forecasts score, and the 1-month loss rests on
+29 of them. Monthly remains pinned; production stays weekly (D-68). Deliverable:
+`Downloads/20261012_FEWSNET-GRU_Monthly_GapFilled_PeriodMarket_v1.xlsx`.

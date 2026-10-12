@@ -118,7 +118,7 @@ def _interpolate_within_span(col: np.ndarray, limit: int) -> tuple[np.ndarray, n
     s = pd.Series(col)
     obs = s.dropna()
     filled = np.zeros(len(col), dtype=bool)
-    if obs.empty:
+    if obs.empty or limit <= 0:  # limit 0: no interpolation (a panel already gap-filled upstream, D-75)
         return col, filled
     lo, hi = obs.index[0], obs.index[-1]
     inner = s.loc[lo:hi]
