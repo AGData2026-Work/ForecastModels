@@ -3539,3 +3539,9 @@ up to about 47 days. CHIRPS rainfall on HDX updates every 14 days, about 5 days 
 30 days, about 15 to 45 days behind, and is smoothed so recent values are revised. CBN is daily; NBS CPI
 about the 15th. The Kaduna/Kano source reports within 6 days; AFEX and NAERLS release dates cannot be
 confirmed from the files held. No model was rerun on these findings.
+
+**D-75 data fragility documented (owner, 2026-10-12).** Out of the workstream's control, so recorded rather
+than fixed: `docs/DATA_FRAGILITY.md` (seven markets without FEWS NET prices after Jan 2025; five months with
+no FEWS NET value anywhere; late and revised FEWS NET months; three third-party fill sources carrying Giwa,
+Saminaka and part of Dandume and Kaura Namoda, with unconfirmed terms; diesel switch in Oct 2024; revised
+climate feeds; official FX only).
