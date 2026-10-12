@@ -28,13 +28,14 @@ they are simply no longer what this workstream reports against or is judged by.
 
 One model per workstream, GRU, plus a point-in-time soft blend; everything
 else is decommissioned (`docs/DECOMMISSIONED_20260928.md`).
-- FEWSNET (main, D-68, replacing D-59's config): GRU on
-  `configs/build3_fxdaily_fxonly_pit.yaml`, the D-59 GRU plus four FX features from
-  the CBN daily rate (D-66) and exogenous inputs as published (D-67). Production run
-  `outputs/production_fxdaily_pit_extended/GRU_unconditional/` (D-56 grid); blend
-  from `src/regime_blend.py` into `outputs/regime_blend_soft_production/GRU/`.
-  `configs/build3.yaml` (D-59) is the previous flagship, kept as the no-FX
-  reference; do not report it as production.
+- FEWSNET (main, D-77, 2026-10-12, replacing D-68's weekly config): monthly GRU on
+  `configs/build3_monthly_fxdaily_gapfilled_pit_parity.yaml`: gap-filled FEWS NET panel v3
+  (`src/build_gapfilled_panel.py` -> `src/build_monthly_gapfilled.py --published`), forecast on the 15th
+  of the month after the latest price month, daily CBN FX scores, drivers one month back, import-parity
+  gap (`attach_parity`), no blend. Evaluation `outputs/d75_monthly_parity_pit/h{1,3,6}`; serving model
+  `outputs/production_monthly_parity_serving/` via `src/predict.py`. The weekly D-68 config
+  (`configs/build3_fxdaily_fxonly_pit.yaml`) is now the reference; `docs/PUBLICATION_LAGS.md` and
+  `docs/DATA_FRAGILITY.md` record the data timing and risks.
   Every other config, and every `experiment/` branch, is an ongoing experiment, not
   production: `docs/MODEL_STATUS.md` lists them.
 - AFEX (afex-multicommodity, D-76): GRU on

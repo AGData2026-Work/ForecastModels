@@ -91,6 +91,15 @@ def train_one(
     if lr_schedule == "cosine":
         sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=epochs)
     loss_fn = nn.HuberLoss(delta=huber_delta, reduction="none")
+    # D-72 partial targets: NaN targets are masked out of every loss. Only switched on when a
+    # target is NaN, so every existing run takes the unmasked path below, unchanged.
+    masked = bool(torch.isnan(ytr).any() or torch.isnan(yva).any())
+    if masked:
+        mtr, mva = torch.isfinite(ytr).float(), torch.isfinite(yva).float()
+        ytr, yva = torch.nan_to_num(ytr), torch.nan_to_num(yva)
+
+    def _mean(l, m):
+        return (l * m).sum() / m.sum().clamp(min=1.0)
 
     n = len(Xtr)
     train_loss_subsampled = n > 8000
@@ -107,7 +116,11 @@ def train_one(
             idx = perm[k:k + batch]
             opt.zero_grad()
             pred = net(Xtr[idx], Ftr[idx], Itr[idx])
-            per = loss_fn(pred, ytr[idx]).mean(dim=1)
+            if masked:
+                l_, m_ = loss_fn(pred, ytr[idx]), mtr[idx]
+                per = (l_ * m_).sum(dim=1) / m_.sum(dim=1).clamp(min=1.0)
+            else:
+                per = loss_fn(pred, ytr[idx]).mean(dim=1)
             loss = (per * Wtr[idx]).sum() / Wtr[idx].sum()
             if not torch.isfinite(loss):
                 raise RuntimeError(
@@ -121,11 +134,18 @@ def train_one(
             sched.step()
         net.eval()
         with torch.no_grad():
-            v = loss_fn(net(Xva, Fva, Iva), yva).mean().item()
-            if train_loss_subsampled:
-                t = loss_fn(net(Xtr[sub], Ftr[sub], Itr[sub]), ytr[sub]).mean().item()
+            if masked:
+                v = _mean(loss_fn(net(Xva, Fva, Iva), yva), mva).item()
+                if train_loss_subsampled:
+                    t = _mean(loss_fn(net(Xtr[sub], Ftr[sub], Itr[sub]), ytr[sub]), mtr[sub]).item()
+                else:
+                    t = _mean(loss_fn(net(Xtr, Ftr, Itr), ytr), mtr).item()
             else:
-                t = loss_fn(net(Xtr, Ftr, Itr), ytr).mean().item()
+                v = loss_fn(net(Xva, Fva, Iva), yva).mean().item()
+                if train_loss_subsampled:
+                    t = loss_fn(net(Xtr[sub], Ftr[sub], Itr[sub]), ytr[sub]).mean().item()
+                else:
+                    t = loss_fn(net(Xtr, Ftr, Itr), ytr).mean().item()
         if not (np.isfinite(v) and np.isfinite(t)):
             raise RuntimeError(
                 f"{run_label}: validation loss {v} or train-checkpoint loss {t} is "

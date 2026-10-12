@@ -146,3 +146,75 @@ def change_control(paired: pd.DataFrame, gate_horizons=(4, 13), threshold=5.0) -
                     "review to change production" if passed else
                     "FAIL; production model unchanged"),
     }
+
+
+# ---------------------------------------------------------------------------
+# bias (D-73): reported alongside error for every run
+# ---------------------------------------------------------------------------
+def _cluster_cov(X: np.ndarray, resid: np.ndarray, groups) -> np.ndarray:
+    """OLS sandwich covariance, clustered by group (CR0); HC0 when fewer than 2 groups."""
+    XtX_inv = np.linalg.inv(X.T @ X)
+    g = np.asarray(groups) if groups is not None else np.arange(len(resid))
+    if len(np.unique(g)) < 2:
+        g = np.arange(len(resid))
+    meat = np.zeros((X.shape[1], X.shape[1]))
+    for k in np.unique(g):
+        s = (X[g == k] * resid[g == k, None]).sum(axis=0)
+        meat += np.outer(s, s)
+    return XtX_inv @ meat @ XtX_inv
+
+
+def bias_metrics(df: pd.DataFrame, pred: str, actual: str = "actual", naive: str = "naive",
+                 h: str = "h", market: str = "market", origin: str = "origin") -> pd.DataFrame:
+    """Per horizon:
+    - share of forecasts above / below the actual, with a sign test against 50/50;
+    - mean error (NGN/kg) and mean percentage error (positive = forecasts too high);
+    - tracking signal, the planning convention: per market, sum of the last 12 errors / their
+      mean absolute error (range -12..+12); reported as the share of (market, forecast) points
+      where it is outside +/-4, the usual alarm level, and the mean of each market's latest value;
+    - Mincer-Zarnowitz on changes from the origin price: log(actual/naive) = a + b log(pred/naive),
+      unbiased if a = 0 and b = 1 (b < 1: forecasts move too much; b > 1: too little); standard
+      errors clustered by market; joint Wald test, chi-square with 2 df."""
+    import math
+    rows = []
+    for hh, d in df.groupby(h):
+        d = d.dropna(subset=[actual, pred, naive]).sort_values([origin, market])
+        a, p, n0 = d[actual].to_numpy(float), d[pred].to_numpy(float), d[naive].to_numpy(float)
+        e = p - a
+        n = len(e)
+        over = int((e > 0).sum())
+        z = (over - n / 2) / math.sqrt(n / 4) if n else float("nan")
+        alarms, latest = [], []
+        for _, q in d.groupby(market):
+            eq = pd.Series((q[pred] - q[actual]).to_numpy(float))
+            ts = eq.rolling(12, min_periods=12).sum() / eq.abs().rolling(12, min_periods=12).mean()
+            ts = ts.dropna()
+            if len(ts):
+                alarms.extend((ts.abs() > 4).tolist())
+                latest.append(float(ts.iloc[-1]))
+        y = np.log(a / n0)
+        x = np.log(p / n0)
+        X = np.column_stack([np.ones(n), x])
+        # numpy 2.0 + Apple Accelerate raises spurious "divide by zero in matmul" warnings here;
+        # the results are checked for finiteness instead.
+        with np.errstate(divide="ignore", over="ignore", invalid="ignore"):
+            beta = np.linalg.lstsq(X, y, rcond=None)[0]
+            V = _cluster_cov(X, y - (X * beta).sum(axis=1), d[market].to_numpy())
+        assert np.isfinite(beta).all() and np.isfinite(V).all()
+        dvec = beta - np.array([0.0, 1.0])
+        try:
+            with np.errstate(divide="ignore", over="ignore", invalid="ignore"):
+                W = float(dvec @ np.linalg.inv(V) @ dvec)
+        except np.linalg.LinAlgError:
+            W = float("nan")
+        se = np.sqrt(np.diag(V))
+        rows.append(dict(
+            h=hh, n=n, pct_over=round(100 * over / n, 1), pct_under=round(100 * (e < 0).sum() / n, 1),
+            sign_test_p=round(math.erfc(abs(z) / math.sqrt(2)), 4),
+            mean_error=round(float(e.mean()), 2), mean_pct_error=round(float(100 * (e / a).mean()), 1),
+            ts12_pct_outside_4=round(100 * float(np.mean(alarms)), 1) if alarms else float("nan"),
+            ts12_latest_mean=round(float(np.mean(latest)), 2) if latest else float("nan"),
+            mz_intercept=round(float(beta[0]), 4), mz_intercept_se=round(float(se[0]), 4),
+            mz_slope=round(float(beta[1]), 3), mz_slope_se=round(float(se[1]), 3),
+            mz_joint_p=round(math.exp(-W / 2), 4) if np.isfinite(W) else float("nan")))
+    return pd.DataFrame(rows)

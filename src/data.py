@@ -82,6 +82,17 @@ class Panel:
     fx_summary: np.ndarray | None = None
     fx_summary_names: list | None = None
     inflation_yoy: np.ndarray | None = None  # (T, M), national series broadcast to every column
+    # Out-of-sample retraining (D-71): training TARGETS from a separate column, each usable only
+    # once known. None (the default, every panel without these columns) = targets are `price`.
+    target_price: np.ndarray | None = None      # (T, M)
+    target_known_idx: np.ndarray | None = None  # (T, M) first panel index at which the target is known
+    # D-75 import parity: landed price of imported maize, NGN/kg, one value per date (national). When set,
+    # build_flat appends log(market price at the origin / parity at the origin) as the last flat feature.
+    parity: np.ndarray | None = None            # (T,)
+    # Real-price target (D-73): annual log food-inflation rate known at each date, (T,). When set,
+    # training targets are price changes net of expected inflation, rate * h / 52, and forecasts
+    # add it back. None (default) = nominal targets, as before.
+    infl_drift: np.ndarray | None = None
 
 
 def validate_panel(p: "Panel") -> None:
@@ -110,7 +121,7 @@ def _interpolate_within_span(col: np.ndarray, limit: int) -> tuple[np.ndarray, n
     s = pd.Series(col)
     obs = s.dropna()
     filled = np.zeros(len(col), dtype=bool)
-    if obs.empty:
+    if obs.empty or limit <= 0:  # limit 0: no interpolation (a panel already gap-filled upstream, D-75)
         return col, filled
     lo, hi = obs.index[0], obs.index[-1]
     inner = s.loc[lo:hi]
@@ -194,6 +205,19 @@ def load_panel(
     }
     panel = Panel(dates, markets, pos, midx, price, filled, diesel, upstream,
                   rain, nd, fou, has_up, log, season_lag=season_lag)
+    if "target_price" in df.columns and "target_known_date" in df.columns:
+        # D-71: rows flagged target_from_price (the weekly history) keep `price` as the target,
+        # exactly as before; other rows (the monthly period) use that month's real value, known
+        # only from target_known_date on, and stay NaN (no window) where there is none.
+        tp = grid("target_price")
+        from_price = grid("target_from_price") > 0.5
+        panel.target_price = np.where(from_price, price, tp)
+        kd = (df.assign(target_known_date=pd.to_datetime(df["target_known_date"]))
+                .pivot(index="date", columns="market", values="target_known_date")
+                .reindex(dates)[markets])
+        kidx = np.searchsorted(dates.values, kd.to_numpy(dtype="datetime64[ns]").ravel(), side="left")
+        panel.target_known_idx = kidx.reshape(kd.shape)
+        log["target_price_cells_from_column"] = int(np.isfinite(tp).sum())
     validate_panel(panel)
     return panel
 
@@ -271,6 +295,42 @@ def make_exog_point_in_time(p: Panel, panel_path: str | Path) -> None:
     p.diesel, p.rainfall, p.ndvi = out, rain, nd
 
 
+def attach_parity(p: Panel, parity_path: str | Path) -> None:
+    """D-75: monthly import parity (columns month 'YYYY-MM', parity_ngn_per_kg) onto a monthly panel.
+    Month o's parity uses month o's world price, freight, naira rate and duty, all public before the
+    15th of o+1, the monthly forecast date. Missing months stay NaN, which drops those windows."""
+    q = pd.read_csv(parity_path)
+    s = q.set_index("month")["parity_ngn_per_kg"]
+    months = p.dates.to_period("M").astype(str)
+    p.parity = np.array([s.get(m, np.nan) for m in months], dtype=float)
+    p.log["parity"] = {"path": str(parity_path), "dates_without_parity": int((~np.isfinite(p.parity)).sum()),
+                       "first": str(s.index.min()), "last": str(s.index.max())}
+
+
+def attach_inflation_drift(p: Panel, inflation_path: str | Path, lag_months: int = 2,
+                           column: str = "Food Inflation (%)-YoY") -> None:
+    """D-73. Expected inflation at each date: the food-inflation YoY rate of month(date) - lag
+    (the latest published by then), as an annual log rate; carried past the file's end."""
+    inf = pd.read_excel(inflation_path, sheet_name="Monthly Inflation").rename(columns={"Unnamed: 0": "date"})
+    inf["date"] = pd.to_datetime(inf["date"])
+    s = inf.drop_duplicates("date").set_index("date")[column].sort_index()
+    s.index = s.index.to_period("M")
+    want = p.dates.to_period("M") - lag_months
+    v = s.reindex(want).to_numpy(dtype=float)
+    last = s.index.max()
+    v[want > last] = float(s.loc[last])
+    p.infl_drift = np.log1p(v / 100.0)
+    p.log["infl_drift"] = {"source": str(inflation_path), "column": column, "lag_months": lag_months,
+                           "missing": int(np.isnan(p.infl_drift).sum())}
+
+
+def inflation_offsets(p: Panel, i: int, horizons: list[int]) -> np.ndarray:
+    """Expected log inflation over each horizon from date index i (zeros when not enabled)."""
+    if p.infl_drift is None:
+        return np.zeros(len(horizons))
+    return np.array([p.infl_drift[i] * h / 52.0 for h in horizons])
+
+
 FX_SUMMARY_NAMES = ["fx_dep3_rank", "fx_dep6_rank", "fx_dep12_rank",
                     "infl_level_rank", "infl_change6_rank", "months_since_deval"]
 DEVALUATION = np.log(1.10)   # a month in which the naira fell 10% or more
@@ -343,7 +403,8 @@ def _fx_daily_features(daily_path: str | Path, cutoffs: pd.DatetimeIndex) -> tup
 def attach_fx_summary(p: Panel, fx_path: str | Path, inflation_path: str | Path,
                       fx_lag_months: int = 1, inflation_lag_months: int = 2,
                       keep: list[str] | None = None, fx_daily_path: str | Path | None = None,
-                      origin_is_month_end: bool = False) -> None:
+                      origin_is_month_end: bool = False, monthly_cutoff_day: int | None = None,
+                      monthly_cutoff_months: int = 1) -> None:
     """FX restructuring option 2. Six bounded flat features at each date, computed on
     the monthly national series and then looked up for the latest month that would have
     been published by that date (lags as attach_macro):
@@ -386,6 +447,10 @@ def attach_fx_summary(p: Panel, fx_path: str | Path, inflation_path: str | Path,
         # month o for a month-end origin. fx_lag_months no longer applies to FX.
         cut = (p.dates.to_period("M").to_timestamp(how="end").normalize() if origin_is_month_end
                else p.dates - pd.Timedelta(days=1))
+        if origin_is_month_end and monthly_cutoff_day:
+            # D-75 as published: the forecast for month o is made on day monthly_cutoff_day + 1 of
+            # month o+1 (after FEWS NET's mid-month release); FX is read the day before.
+            cut = (p.dates + pd.DateOffset(months=monthly_cutoff_months)) + pd.Timedelta(days=monthly_cutoff_day - 1)
         fx_rows, daily_log = _fx_daily_features(fx_daily_path, cut)
     X = np.column_stack([fx_rows[:, :3], in_rows, fx_rows[:, 3:]])
     names = ["fx_dep3_rank", "fx_dep6_rank", "fx_dep12_rank", "infl_level_rank",
@@ -399,7 +464,7 @@ def attach_fx_summary(p: Panel, fx_path: str | Path, inflation_path: str | Path,
         X, names = X[:, idx], [names[i] for i in idx]
     p.fx_summary, p.fx_summary_names = X, names
     p.log["fx_summary"] = {"fx_lag_months": None if fx_daily_path else fx_lag_months,
-                           "fx_daily": daily_log,
+                           "fx_daily": daily_log, "monthly_cutoff_day": monthly_cutoff_day,
                            "inflation_lag_months": inflation_lag_months,
                            "devaluation_months": [str(m) for m, d in zip(f.index, dev) if d],
                            "dates_with_missing_feature": int((~np.isfinite(X)).any(axis=1).sum())}
@@ -695,6 +760,11 @@ def build_flat(
             raise ValueError("use_fx_summary=True but Panel has no fx_summary (call attach_fx_summary)")
         vals.extend(float(v) for v in p.fx_summary[i])
 
+    if p.parity is not None:
+        if not np.isfinite(p.parity[i]) or p.parity[i] <= 0:
+            return np.empty(0), False
+        vals.append(float(np.log(p0) - np.log(p.parity[i])))
+
     arr = np.asarray(vals, dtype=float)
     if arr.size and not np.isfinite(arr).all():
         return np.empty(0), False
@@ -731,22 +801,41 @@ def build_training_windows(
     driver_source: str = "realised",
     use_macro: bool = False,
     use_fx_summary: bool = False,
+    partial_targets: bool = False,
 ):
     """Every usable (market, week) window whose LAST TARGET lands at or before
-    origin_max_idx. Nothing at or after the forecast cut can enter."""
+    origin_max_idx. Nothing at or after the forecast cut can enter.
+
+    partial_targets (D-72, off by default): keep a window when at least one horizon's target
+    is known by the cut; the others are NaN and masked out of the loss in train_one. Targets
+    after the cut, or not yet published (target_known_idx), are always NaN, never used."""
     max_h = max(horizons)
     lo = max(lookback - 1, p.season_lag) if use_lag52 else lookback - 1
     if origin_min_idx is not None:
         lo = max(lo, origin_min_idx)
     Xs, Fs, ys, meta = [], [], [], []
+    T_ = len(p.dates)
+    i_end = origin_max_idx - (min(horizons) if partial_targets else max_h) + 1
     for j in train_market_ids:
-        for i in range(lo, origin_max_idx - max_h + 1):
+        for i in range(lo, i_end):
             p0 = p.price[i, j]
             if not np.isfinite(p0) or p0 <= 0:
                 continue
-            tgt = p.price[[i + h for h in horizons], j]
-            if not np.isfinite(tgt).all() or (tgt <= 0).any():
-                continue
+            ti = [i + h for h in horizons]
+            if partial_targets:
+                src = p.target_price if p.target_price is not None else p.price
+                tgt = np.array([src[t, j] if t < T_ else np.nan for t in ti], dtype=float)
+                known = np.array([t <= origin_max_idx and (p.target_known_idx is None or p.target_known_idx[t, j] <= origin_max_idx)
+                                  if t < T_ else False for t in ti])
+                tgt = np.where(known & np.isfinite(tgt) & (tgt > 0), tgt, np.nan)
+                if not np.isfinite(tgt).any():
+                    continue
+            else:
+                tgt = (p.target_price if p.target_price is not None else p.price)[ti, j]
+                if not np.isfinite(tgt).all() or (tgt <= 0).any():
+                    continue
+                if p.target_known_idx is not None and (p.target_known_idx[ti, j] > origin_max_idx).any():
+                    continue  # D-71: a target not yet published at the cut cannot be trained on
             X, ok = build_sequence(p, i, j, lookback, use_macro=use_macro)
             if not ok:
                 continue
@@ -756,7 +845,7 @@ def build_training_windows(
                 continue
             Xs.append(X)
             Fs.append(F)
-            ys.append(np.log(tgt) - np.log(p0))
+            ys.append(np.log(tgt) - np.log(p0) - inflation_offsets(p, i, horizons))
             meta.append((p.markets[j], j, p.dates[i], float(p0)))
     if not Xs:
         return (np.empty((0, lookback, 0)), np.empty((0, 0)),
@@ -851,7 +940,10 @@ class Scaler:
             sd = F.std(0)
             self.flat_mu, self.flat_sd = F.mean(0), np.where(sd < 1e-6, 1.0, sd) + 1e-8
         if y is not None:
-            self.y_mu, self.y_sd = y.mean(0), y.std(0) + 1e-8
+            if np.isnan(y).any():  # D-72 partial targets: statistics over the known targets only
+                self.y_mu, self.y_sd = np.nanmean(y, 0), np.nanstd(y, 0) + 1e-8
+            else:
+                self.y_mu, self.y_sd = y.mean(0), y.std(0) + 1e-8
         return self
 
     def transform(self, X: np.ndarray, F: np.ndarray) -> tuple[np.ndarray, np.ndarray]:

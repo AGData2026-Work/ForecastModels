@@ -16,6 +16,10 @@ matches this project's own weekly data cadence and 13-week retrain
 cycle, and needs no request-latency engineering a live service would.
 
     python src/predict.py --run-dir outputs/build3_underfit_corrected/GRU_unconditional
+    python src/predict.py --run-dir outputs/d75_monthly_gapfilled_pit_serving   # monthly (D-75)
+
+Monthly runs (data.frequency MS) forecast from the panel's last month o; with
+fx_monthly_cutoff_day set, that forecast is the one made on the 15th of o+1.
 
 Writes outputs/<run>/predictions/<today>.csv and, if a previous
 prediction file exists, prints both side by side (D-47's 3.3 canary
@@ -35,7 +39,8 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from data import (Scaler, attach_fx_summary, attach_macro, build_flat, build_sequence, load_panel,
+from data import (Scaler, attach_fx_summary, attach_inflation_drift, attach_macro, attach_parity, build_flat, build_sequence,
+                  inflation_offsets, load_panel,
                   make_exog_point_in_time)
 from model import RecurrentForecaster, load_checkpoint, predict as net_predict
 
@@ -73,6 +78,13 @@ def main() -> None:
                     help="refuse to forecast if the panel's last date is older "
                          "than this many weeks -- forecasting from stale input "
                          "silently is worse than refusing loudly")
+    ap.add_argument("--max-staleness-months", type=float, default=2.5,
+                    help="monthly runs: refuse if the panel's last month started more than this "
+                         "many months ago (an as-published monthly forecast for month o is made on "
+                         "the 15th of o+1, so about 1.5 months is normal)")
+    ap.add_argument("--blend", action="store_true",
+                    help="monthly runs: also write the point-in-time soft blend with the seasonal naive "
+                         "(src/regime_blend_monthly.py), the D-75 production setup")
     ap.add_argument("--device", default="cpu")
     a = ap.parse_args()
 
@@ -82,9 +94,10 @@ def main() -> None:
     cut_dir, checkpoint_paths = load_current_checkpoints(run_dir)
     print(f"using checkpoint cut: {cut_dir.name} ({len(checkpoint_paths)} seeds)")
 
+    freq = cfg["data"].get("frequency", "W")
     panel = load_panel(cfg["data"]["panel"], rainfall_scheme=cfg["features"]["climate_scheme"],
                        fourier_k=cfg["features"]["fourier_k"],
-                       interp_limit=cfg["data"]["price_interp_limit_weeks"])
+                       interp_limit=cfg["data"]["price_interp_limit_weeks"], frequency=freq)
     # The same input transformations run.py applied to this run (D-62, D-66, D-67); without
     # them the production model (D-68) would get a different feature set from the one it
     # was trained on.
@@ -101,10 +114,24 @@ def main() -> None:
                           fx_lag_months=cfg["data"].get("fx_lag_months", 1),
                           inflation_lag_months=cfg["data"].get("inflation_lag_months", 2),
                           keep=cfg["features"].get("fx_summary_subset"),
-                          fx_daily_path=cfg["data"].get("fx_daily_path"))
+                          fx_daily_path=cfg["data"].get("fx_daily_path"),
+                          origin_is_month_end=(freq == "MS"),
+                          monthly_cutoff_day=cfg["data"].get("fx_monthly_cutoff_day"),
+                          monthly_cutoff_months=cfg["data"].get("fx_monthly_cutoff_months", 1))
+    if cfg["features"].get("parity_path"):
+        attach_parity(panel, cfg["features"]["parity_path"])
+    if cfg["training"].get("real_target", False):
+        attach_inflation_drift(panel, cfg["data"]["inflation_path"],
+                               lag_months=cfg["data"].get("inflation_lag_months", 2))
     last_date = panel.dates[-1]
     staleness_weeks = (pd.Timestamp.now() - last_date).days / 7
-    if staleness_weeks > a.max_staleness_weeks:
+    if freq == "MS":
+        months_old = (pd.Timestamp.now() - last_date).days / 30.44
+        if months_old > a.max_staleness_months:
+            raise SystemExit(f"panel's last month ({last_date.date()}) started {months_old:.1f} months ago, "
+                             f"over the {a.max_staleness_months}-month limit -- refusing to forecast from "
+                             "stale input. Refresh the panel or raise --max-staleness-months.")
+    elif staleness_weeks > a.max_staleness_weeks:
         raise SystemExit(f"panel's last date ({last_date.date()}) is {staleness_weeks:.1f} "
                          f"weeks old, over the {a.max_staleness_weeks}-week limit -- "
                          "refusing to forecast from stale input. Refresh the panel data "
@@ -151,10 +178,25 @@ def main() -> None:
             preds_this_market.append(scaler.y_inverse(yhat)[0])
         median_yhat = np.median(np.stack(preds_this_market), axis=0)
         for hi, h in enumerate(H):
-            rows.append(dict(market=market, origin=str(last_date.date()), h=h,
-                             forecast_price=float(p0 * np.exp(median_yhat[hi]))))
+            rows.append(dict(market=market, origin=str(last_date.date()), h=h, origin_price=float(p0),
+                             forecast_price=float(p0 * np.exp(median_yhat[hi] + inflation_offsets(panel, i, H)[hi]))))
 
     out = pd.DataFrame(rows)
+    if a.blend:
+        if freq != "MS":
+            raise SystemExit("--blend is the monthly (D-75) blend; the weekly blend is src/regime_blend.py")
+        from regime_blend_monthly import blend
+        pq = pd.read_parquet(cfg["data"]["panel"])
+        long = pd.DataFrame({"market": pq["market"], "month": pd.to_datetime(pq["date"]).dt.strftime("%Y-%m"),
+                             "flag": pq["price_flag"], "price_NGN_per_kg": pq["price"]})
+        d = out.rename(columns={"origin_price": "naive", "forecast_price": "GRU"}).assign(origin=pd.Timestamp(last_date))
+        b = blend(d, long, Path(cfg["data"]["inflation_path"]))
+        out["seasonal_naive"] = b["seasonal_naive"].values
+        out["weight_on_GRU"] = b["weight"].values
+        out["blended_price"] = b["blended"].values
+        out["blend_fallback"] = b["fallback"].values
+        if cfg["data"].get("fx_monthly_cutoff_day"):
+            out.insert(1, "forecast_date", str((last_date + pd.DateOffset(months=1)).date())[:8] + "15")
     predictions_dir = run_dir / "predictions"
     predictions_dir.mkdir(parents=True, exist_ok=True)
     today = pd.Timestamp.now().date().isoformat()

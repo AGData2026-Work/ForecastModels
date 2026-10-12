@@ -3122,3 +3122,535 @@ as `src/run.py` (as-published inputs, FX features), checked equal on 64 grid
 windows; without this a live forecast would have used a different feature
 set. `src/fetch_cbn_fx.py` rebuilds the CBN file, which is not in git.
 `CLAUDE.md` and `RUNBOOK.md` updated.
+
+## D-69. Relative prices and per-horizon GRUs on the extended grid: production still best
+
+**Why.** Only four models had ever been scored on the D-56 grid; D-60 and D-61 were
+scored on the 1,590-pair grid only. Both re-run from their experiment branches
+(worktrees, unchanged code, `--baseline data/baseline_h4h13_extended.parquet`; per-horizon
+runs with `--require-horizons` equal to their own horizon). Outputs:
+`outputs/build3_relprice_extended/`, `outputs/build3_per_horizon_extended/`.
+
+**Result, same 1,647 / 1,647 / 1,590 pairs.**
+
+| Model | 1 | 3 | 6 | MAPE | vs naive | DM p vs production |
+|---|---|---|---|---|---|---|
+| Production (D-68) | 17.99 | 31.77 | 42.81 | 9.1 / 16.6 / 22.4% | +12.2 / +28.4 / +24.7% | |
+| Relative prices | 18.06 | 32.20 | 47.83 | 9.2 / 17.2 / 26.5% | +11.8 / +27.4 / +15.8% | .81 / .53 / <.001 |
+| Per-horizon GRUs | 18.74 | 34.86 | 48.84 | 9.7 / 17.9 / 25.9% | +8.5 / +21.4 / +14.1% | .015 / <.001 / <.001 |
+| Old flagship (D-59) | 18.18 | 32.90 | 46.75 | 9.3 / 17.0 / 24.8% | +11.2 / +25.8 / +17.7% | .45 / .11 / <.001 |
+
+Both experiments still use the pre-D-67 inputs (with the diesel and climate look-ahead),
+which favours them; production is ahead or tied everywhere regardless. D-60 and D-61 stand.
+
+## D-70. Out of sample, Oct 2024 to Aug 2026: the production model fails like the panel model did
+
+**Question.** D-68 was adopted on 2015-2024 evidence. How does the production model do
+on the two years after its data ends, when prices fell by about two-thirds?
+
+**Data, applied as it would have been known** (`src/build_oos_2024_26.py`):
+- Price after 2024-09-18: FEWS NET's monthly white-maize wholesale value (API, re-pulled
+  2026-10-05, `..._v2.csv`; 342 values revised since the 2026-10-02 pull). A month's value
+  is assumed public on the 15th of the next month and is held flat until the next one is
+  public; missing months extend the hold. Nothing is interpolated.
+- 9 markets continue monthly to Aug 2026 (Biu, Damaturu, Dandume, Ibadan, Kano, Kaura
+  Namoda, Maiduguri, Mubi, Potiskum); 6 stop after Jan 2025 (Giwa, Gombe, Gujungu, Gwandu,
+  Lagos, Saminaka). Every market is missing Oct-Nov 2024, Feb-Mar 2025, May-Aug 2025 and
+  Oct 2025 at source.
+- Diesel: two variants, FEWS NET market diesel spliced on (per-market 2023-24 ratio) and
+  no new diesel; both then as published (D-67). Rainfall/NDVI: the original climate script
+  run to 2026-09-30, identical to the panel on overlap; NDVI after its source ends is NaN.
+  FX: CBN daily. Upstream: built from the same monthly steps (Ibadan's and Potiskum's
+  upstream, Saminaka, freezes at its Jan 2025 value).
+- Grid (`data/oos_grid_2024_26.parquet`): origins 2024-09-25 and the first Wednesday after
+  each month's value is public, to 2026-07-15 (23); actual = FEWS NET's value for the
+  target week's month, scored only where it exists; naive = the last published value, the
+  same number the model starts from.
+
+**Model.** `configs/build3_fxdaily_fxonly_pit_oos2026.yaml`: production, fitted once at
+2024-09-25 on everything to 2024-09-18 (6,097 windows, 7 seeds) and frozen, as deployed in
+Sept 2024. `src/run.py` gained `--cuts` (off by default) to pin that single fit date; one
+run per horizon. The 2026-07-15 origin is lost to the NDVI gap (9 windows, logged).
+
+**Result, 9 continued markets, latest price at most 13 weeks old** (`src/score_oos_2024_26.py`):
+
+| | 1 | 3 | 6 |
+|---|---|---|---|
+| n | 108 | 108 | 90 |
+| GRU MAE / naive MAE | 94.07 / 77.39 | 118.19 / 93.31 | 197.61 / 172.13 |
+| vs naive | -21.5% | -26.7% | -14.8% |
+| MAPE GRU / naive | 23.3 / 19.9% | 30.7 / 25.3% | 58.5 / 53.2% |
+| predicted a rise / prices rose | 81.5 / 42.6% | 75.9 / 44.4% | 71.1 / 32.2% |
+| mean error | +16% | +20% | +57% |
+
+Worse than naive at every horizon (DM p<.001), with or without stale origins and on all 15
+markets. The diesel variant changes MAE by under 2.5 NGN/kg. By target period at 1 month:
+Oct 2024-Mar 2025, rises predicted 93% of the time against 0% actual (direction 7%);
+Apr-Aug 2026, as prices rose again, slightly better than naive (33 vs 36; 3 months 50 vs
+55). The 6 discontinued markets add 2 to 4 scorable forecasts each, all poor.
+
+**Reading.** The FX features and as-published inputs did not protect the model from the
+reversal: trained on a decade of mostly rising prices, it kept forecasting rises. In
+2025-26 the naira strengthened, a combination (falling maize, firming naira) the training
+data does not contain. This is the strictest version of the test: production retrains
+every 13 weeks, and a frozen model never learns from the collapse.
+
+**The 13-week rule with monthly data.** Interpolating up to 13 weeks (load_panel's
+`price_interp_limit_weeks`, and AFEX's own fills) would put an unpublished next-month price
+into almost every input window, and must never fill targets; not used. As a staleness
+limit (forecast only when the latest price is at most 13 weeks old, i.e. one missed month
+tolerated) it is recommended as an operating rule, for honesty rather than accuracy: here
+naive is equally stale, so it does not change the verdict.
+
+**Status.** D-68 stands as the best model on 2015-2024, but it is not shown to work after
+the reversal. Next: the same test with quarterly retraining (D-71).
+
+## D-71. Out of sample with quarterly retraining: slightly better than frozen, still worse than naive
+
+**Question.** D-70 froze the model at Sept 2024. Production retrains every 13 weeks; does
+learning from the published 2024-26 prices fix the out-of-sample failure?
+
+**How the retrains learn** (`src/data.py`, `src/build_oos_2024_26.py`). The extended panel's
+price column holds the as-published, held-flat values, right for inputs but wrong as
+answers. A separate training-target column holds each month's real FEWS NET value on that
+month's weeks, usable by a retrain only once published (15th of the next month); history rows
+keep the weekly price as before. Months FEWS NET did not collect have no target, so a window
+needing one is dropped. Panels without these columns are unchanged.
+
+**Run.** Same config and grid as D-70; `--cuts` at the production cadence, every 13 weeks from
+2024-09-25 (8 retrains to 2026-06-24); FEWS NET diesel variant.
+
+**What the retrains had to learn from.** A training window needs all three targets (4, 13,
+26 weeks ahead), and the missing months break most of them: windows with any post-Sept-2024
+target grow from 0 at the first cut to 16, 76 (Mar to Dec 2025), 112 and 184 at the last,
+against about 7,700 from 2012-2024.
+
+**Result, 9 continued markets, latest price at most 13 weeks old.**
+
+| | 1 | 3 | 6 |
+|---|---|---|---|
+| naive MAE | 77.39 | 93.31 | 172.13 |
+| frozen (D-70) | 94.07 (-21.5%) | 118.19 (-26.7%) | 197.61 (-14.8%) |
+| quarterly retrain | 93.5 (-20.8%) | 116.0 (-24.3%) | 186.8 (-8.5%) |
+| quarterly vs frozen, DM p | .12 | <.001 | <.001 |
+| quarterly vs naive, DM p | <.001 | <.001 | <.001 |
+| predicted a rise, quarterly (frozen) / prices rose | 81 (81) / 43% | 70 (76) / 44% | 68 (71) / 32% |
+
+Retraining helps a little at 3 and 6 months and mostly once Sept 2025 is published (Oct 2025
+to Mar 2026 targets: 6 months 224 to 209, 3 months 136 to 126), but the model is still
+worse than naive at every horizon and still predicts rises about 70-80% of the time.
+
+**Reading.** Retraining cannot learn a reversal from about 2% new windows. The binding
+constraint is the data: FEWS NET's monthly gaps leave too few complete training windows.
+Options, not yet tried: allow windows with partial targets (a masked loss), or add AFEX
+weekly prices where they exist. Both are code or data changes needing the owner's call.
+
+## D-72. Out of sample with partial training targets: better at 1 and 3 months, still worse than naive
+
+**Question.** D-71's retrains had too few complete training windows. Does counting a window
+when only some of its targets are published help?
+
+**Change** (`training.partial_targets`, off by default; `src/data.py`, `src/model.py`,
+`src/run.py`). A window is kept when at least one of its 4/13/26-week targets is known by
+the cut; unknown or unpublished targets are NaN and masked out of the training, validation
+and checkpoint losses; target scaling uses only known targets. A missing target adds
+nothing to the loss, and scoring still uses only months FEWS NET published. One side effect:
+horizons with more known targets weigh more in training. Production is untouched: a
+production smoke run is identical to the previous code (300 forecasts, max diff 0.0).
+
+**Run.** `configs/build3_fxdaily_fxonly_pit_oos2026_partial.yaml`; same grid, 8 quarterly cuts.
+Learnable post-Sept-2024 targets per cut: 0, 16, 296, 431, 431, 647, 998, 1,349 (D-71: at
+most 184 windows). Partial windows also add 374 recent windows at the first cut.
+
+**Result, 9 continued markets, latest price at most 13 weeks old.**
+
+| | 1 | 3 | 6 |
+|---|---|---|---|
+| naive MAE | 77.39 | 93.31 | 172.13 |
+| frozen (D-70) | 94.07 (-21.5%) | 118.19 (-26.7%) | 197.61 (-14.8%) |
+| quarterly (D-71) | 93.5 (-20.8%) | 116.0 (-24.3%) | 186.8 (-8.5%) |
+| partial targets | 90.6 (-17.1%) | 113.6 (-21.8%) | 189.1 (-9.9%) |
+| partial vs quarterly, DM p | .018 | <.001 | <.001 (worse) |
+| partial vs naive, DM p | <.001 | <.001 | <.001 |
+| predicted a rise / prices rose | 74 / 43% | 60 / 44% | 79 / 32% |
+
+**What changed, by target period.** At 3 months for Oct 2025 to Mar 2026 the model now
+matches naive (109 vs 111; frozen 136): it has learned the fall. But it learned it late:
+in the Apr to Aug 2026 rebound it predicts too few rises (3 months: 40% against 93% actual;
+MAE 62 vs naive 55), so the gain at 6 months from D-71 is partly lost.
+
+**Reading.** More training signal makes the model track the regime it has just seen, a
+quarter or two behind each turn; with two turns in two years (collapse, then rebound) that
+lag costs about as much as it gains. Still worse than naive at every horizon. Not adopted
+for production; the option stays in the code, off.
+
+## D-73. Real-price target and direction-balanced training; bias now reported for every run
+
+**Why.** D-70 to D-72 showed the production model carries an "up" habit: over 2012-24
+prices rose in 64% of 26-week windows, by +13.8% on average, and the target scaler bakes that
+mean in. Out of sample it predicted +13% at 6 months while prices fell 24%.
+
+**Changes (all off by default; production identical).**
+- `training.real_target`: training targets are price changes net of expected food inflation
+  (latest published food-inflation YoY, lag 2 months, x h/52); forecasts add it back
+  (`run.py`, `predict.py`).
+- `training.direction_balance`: rising and falling training windows (sign of the mean
+  target, net of inflation when `real_target` is on) carry equal total weight.
+- `metrics.bias_metrics`, written as `bias_metrics.csv` by every run and by
+  `src/bias_report.py` for finished runs: over/under split with a sign test, mean (pct)
+  error, rolling 12-forecast tracking signal per market (share of points outside +/-4; at 3
+  and 6 months overlapping forecasts keep it high even without bias, so read it relatively),
+  and Mincer-Zarnowitz on changes from the origin price (intercept 0 and slope 1 if unbiased;
+  market-clustered errors; joint chi-square test). `score_oos_2024_26.py` reports it too.
+
+**2015-2024, extended grid** (`outputs/d73_hist_*`; DM vs production):
+
+| | 1 | 3 | 6 | over / under at 6 | mean % error at 6 |
+|---|---|---|---|---|---|
+| production | 17.99 | 31.77 | 42.81 | 37 / 63 | -4.5% |
+| real target | 17.96 (p=.65) | 31.33 (p=.035) | 40.30 (p<.001) | 43 / 57 | -1.9% |
+| direction balance | 18.05 (p=.53) | 31.82 (p=.79) | 42.77 (p=.89) | 37 / 63 | -5.6% |
+| both | 18.07 (p=.27) | 31.22 (p=.016) | 40.24 (p<.001) | 44 / 56 | -1.3% |
+
+Real target at 6 months: margin 2.51 against seed SD 1.19, passes D-45; at 3 months 0.44
+against 0.77, does not. 2023-24 at 6 months: 96.7 to 82.8. Bias falls at every horizon.
+
+**Out of sample 2024-26, quarterly retraining, 9 continued markets** (`outputs/d73_oos_*`;
+DM vs D-71):
+
+| | 1 | 3 | 6 |
+|---|---|---|---|
+| naive | 77.4 | 93.3 | 172.1 |
+| quarterly (D-71) | 93.5 (-20.8%) | 116.0 (-24.3%) | 186.8 (-8.5%) |
+| real target | 95.1 (-22.9%) | 124.8 (-33.8%) | 204.0 (-18.5%) |
+| direction balance | 91.5 (-18.2%) | 108.9 (-16.7%) | 166.5 (+3.3%) |
+| both | 95.1 (-22.9%) | 124.9 (-33.9%) | 203.5 (-18.2%) |
+
+Real target is worse out of sample: official food inflation stayed at 20-40% through mid-2025
+while maize fell, so the added expected inflation pushed forecasts further up. Direction
+balance helps out of sample at every horizon and is the first variant ahead of naive at 6
+months, but not robustly: 4 of 7 seeds beat naive (seed MAEs 159.8 to 207.3), the 5.6 NGN/kg
+margin is inside seed noise (fails D-45), and it wins only Oct 2025 to Mar 2026 (193 vs 290)
+while losing the other periods.
+
+**Decision: neither adopted.** Real target improves 2015-24 and reduces bias but fails the
+reversal; balance helps the reversal but is noise-level. Both stay in the code, off. The
+result points to inputs that explain falls (import parity, harvest, policy), not to target
+or weighting changes alone.
+
+## D-74. Monthly GRU on the World Bank RTFP maize estimates: looks fine on the estimates, which miss the real fall
+
+**Request (owner, 2026-10-07).** Run the model on `NGA_RTFP_mkt_2007_2026-09-28.xlsx` using the
+estimated close price `c_maize_fao` for every market and month.
+
+**What the file is.** World Bank Real-Time Food Prices, 74 markets, Jan 2007 to Sep 2026. The
+observed maize column (`maize_fao`) is FAO GIEWS, which for Kano, Ibadan, Kaura Namoda,
+Maiduguri ("Monday"), Lagos and Giwa equals FEWS NET's retail price to the naira and adds no
+month FEWS NET lacks; Gombe's comes from another source and runs 0.6x to 1.7x FEWS NET's
+level. `c_maize_fao` is the World Bank's modelled price, present for every month; under our
+market names only Giwa, Gombe, Ibadan, Kaura Namoda and Lagos have any observation, so the
+other 10 series are model output throughout. RTFP re-estimates history as data arrive, so the
+series is not as-published.
+
+**Build** (`src/build_monthly_rtfp.py`, `configs/build3_monthly_fxdaily_rtfp.yaml`): the monthly
+daily-FX GRU (D-66) on a monthly panel May 2012 to Sep 2026 with price = `c_maize_fao`, upstream
+= the upstream market's estimate, drivers from the D-70 extended weekly panel (missing diesel
+months and NDVI after May 2026 carried forward: 245 and 64 market-months). Grid Sept 2015 to Mar
+2026 origins, 1,905 pairs per horizon, actual and naive both the estimate; quarterly retraining.
+
+**Result against the estimates** (`outputs/d74_monthly_rtfp/`):
+
+| | 1 | 3 | 6 |
+|---|---|---|---|
+| GRU / naive MAE | 17.93 / 19.98 | 38.57 / 44.60 | 61.84 / 70.44 |
+| vs naive (DM p) | +10.3% (<.001) | +13.5% (<.001) | +12.2% (<.001) |
+| 2015-19 | -4.7% | -13.0% | -20.3% |
+| 2020-22 | +7.1% | +7.5% | +10.0% |
+| 2023 to Sep 2024 | +22.3% | +37.2% | +35.4% |
+| Oct 2024 to Sep 2026 | +3.6% | -2.8% | -2.0% |
+
+Bias: forecasts too low 55 / 60 / 63% of the time; Mincer-Zarnowitz slope 0.99 / 0.85 / 0.68.
+
+**Against real FEWS NET wholesale prices** (same forecasts, where FEWS NET has a value): the
+estimates sit on average 18% above FEWS NET, and 56% above it from Oct 2024. Out of sample the
+forecasts miss real prices by a MAPE of 61 / 68 / 88%.
+
+**Reading.** On the estimates the model is about level with naive in 2024-26, far closer than
+on real data (D-70 to D-73: -17% to -34%), but only because the estimated series barely shows
+the 2025 collapse (RTFP's Kano series, Jul 2026: estimate 544 against its own observation 381; the
+Dawanau series this run used reads 576). The easier result comes from a
+smoother target, not a better model. Not a usable data source for this workstream; the
+estimates should not be used as inputs or targets for real-price forecasting.
+
+**Correction (2026-10-08).** RTFP carries two series each for two of our markets: Dawanau
+(estimate only) and Kano (152 observed months, FEWS NET retail via FAO); Maiduguri (estimate
+only) and Monday market, Maiduguri (169 observed months). D-74 used the name matches, Dawanau
+and Maiduguri, so both are pure model output. Against our last-week wholesale price the
+observation-bearing series sit closer from Oct 2024 (Kano +29% rather than +45%; Monday +17%
+rather than +42%). Per-market detail: `Downloads/20261008_FEWSNET-RTFP_MaizePriceComparison_PerMarketMonthly_v2.xlsx`.
+
+---
+
+## D-75. Monthly daily-FX GRU on the gap-filled FEWS NET panel: same picture as D-66, too little 2024-26 data to judge
+
+**Request (owner, 2026-10-12).** Run the best monthly variant (D-66, `configs/build3_monthly_fxdaily_fxonly.yaml`)
+on the gap-filled monthly panel, with results by period and by market.
+
+**Data** (`src/build_monthly_gapfilled.py`, `configs/build3_monthly_fxdaily_gapfilled.yaml`). Prices from
+`Downloads/20261012_FEWSNET_Maize_Monthly_GapFilled_Panel_v2.xlsx`: FEWS NET API monthly values (2,184
+observed market-months, May 2012 to Aug 2026), plus 34 direct and 19 same-state fills from AFEX, NAERLS
+(old crop only) and the Kaduna/Kano other source, and 78 linear fills of FEWS NET gaps of 2 months or
+less. Rules: observed values never changed; level ratio = median FEWS/source over months before the gap
+(at least 6, else unadjusted and flagged); Kano not source-filled (weak alignment). Training targets are
+FEWS NET observed values only (`target_price`, known from the next month). load_panel's own
+interpolation is off (`price_interp_limit_weeks: 0`; `_interpolate_within_span` now returns unchanged
+for a limit of 0). Drivers as the RTFP build (D-74): monthly means of the extended weekly panel, not as
+published. Grid: 15 markets, origins Sep 2015 to Jul 2026, actuals FEWS NET observed only; 50 origins
+dropped because an interpolated input was anchored after the origin, 122 for no origin price. One run
+per horizon (`--require-horizons h`), `outputs/d75_monthly_gapfilled/h{1,3,6}`.
+
+**Result** (GRU vs naive, MAE, positive = GRU better):
+
+| | 1 month | 3 months | 6 months |
+|---|---|---|---|
+| All (n 1,557 / 1,496 / 1,470) | +10.4% (p<.001) | +25.2% (p<.001) | +22.4% (p<.001) |
+| 2015-19 | -4.0% | -17.3% | -33.7% |
+| 2020-22 | +9.7% | +14.0% | +6.7% (p=.25) |
+| 2023 to Sep 2024 | +20.9% | +42.3% | +46.4% |
+| Oct 2024 to Aug 2026 (n 29 / 9 / 36) | -135.9% | +9.7% | +11.8% |
+| D-66 on common pairs to Mar 2024, gap-filled vs original | +16.8 vs +14.2% | +21.8 vs +20.7% | +24.1 vs +27.3% |
+
+MAPE 8.2 / 16.6 / 23.8% (naive 8.8 / 18.0 / 23.0%). Every market beats naive at 3 and 6 months; Ibadan
+loses at 1 month (-5.8%). Bias: under-forecasts 53 / 57 / 60% of the time; Mincer-Zarnowitz slope 0.88 /
+0.62 / 0.41.
+
+**Reading.** On 2015-2024 the gap-filled panel changes little against D-66 (common pairs within 3
+points, better at 1 and 3 months, worse at 6). The 2024-26 period cannot be judged: FEWS NET's May to
+Aug 2025 gap (4 months, left unfilled by the 2-month rule) breaks every 6-month input window and the
+12-month anchors through mid-2026, so only 29 / 9 / 36 forecasts score, and the 1-month loss rests on
+29 of them. Monthly remains pinned; production stays weekly (D-68). Deliverable:
+`Downloads/20261012_FEWSNET-GRU_Monthly_GapFilled_PeriodMarket_v1.xlsx`.
+
+**D-75 update (2026-10-12): May to Aug 2025 recovered, panel v3, rerun.** FEWS NET's own export
+(`Downloads/20261012_FEWSNET Price Data_v1.xlsx`) carries `value_one_year_ago` on the May to Aug 2026
+rows, which gives May to Aug 2025 for 9 markets (Biu, Damaturu, Dandume, Ibadan, Kano, Kaura Namoda,
+Maiduguri, Mubi, Potiskum): 36 market-months never published as a value. Every route that overlaps a
+published value agrees exactly (2,259 of 2,259), so they enter as observed. Check of the fills they
+replace: v2's 4 Dandume stand-in fills (AFEX Bakori) missed by 2.9% on average; a 4-month linear
+interpolation would have missed by 9.6% (14.3% in the third month), carry-forward by 18.1%, AFEX Kano
+by 21-35%, which supports both the 2-month cap and leaving Kano unfilled. Panel v3
+(`Downloads/20261012_FEWSNET_Maize_Monthly_GapFilled_Panel_v3.xlsx`); the v2-panel run is kept at
+`outputs/_archive/20261012_retired_v2panel/d75_monthly_gapfilled/` (retired 2026-10-12, with the v2 panel and its results workbook moved to `Downloads/_retired_20261012/`).
+
+| Oct 2024 to Aug 2026 | 1 month | 3 months | 6 months |
+|---|---|---|---|
+| v2 panel (n 29 / 9 / 36) | -135.9% | +9.7% | +11.8% |
+| v3 panel (n 146 / 102 / 114) | -28.4% (p<.001) | +3.4% (p=.37) | +15.6% (p<.001) |
+
+2015 to Sep 2024 is unchanged to the decimal (no history changed). All periods: +8.7 / +23.0 / +21.8%
+vs naive. On 2024-26 the monthly GRU loses at 1 month, ties at 3 and wins at 6 (MAPE 34.8% vs naive
+43.5%). Not comparable to the weekly D-70 to D-73 test: monthly targets are month values, diesel and
+climate are not as-published, filled prices are inputs, and a month-end origin ignores FEWS NET's
+mid-next-month release. Deliverable: `Downloads/20261012_FEWSNET-GRU_Monthly_GapFilled_PeriodMarket_v2.xlsx`.
+
+**D-75 as published (2026-10-12).** `configs/build3_monthly_fxdaily_gapfilled_pit.yaml`,
+`src/build_monthly_gapfilled.py --published`: the forecast for month o is made on the 15th of o+1, after
+FEWS NET's API release of month o (assumed, as D-70); FX read on the 14th (`fx_monthly_cutoff_day`, new in
+`attach_fx_summary`; longest gap to a CBN rate day 4 days); diesel, rainfall and NDVI through month o-1
+(diesel for month M public on the 20th of M+1, climate as D-67); training targets usable from their own
+month. Same v3 panel, grid and model. `outputs/d75_monthly_gapfilled_pit/h{1,3,6}`.
+
+| vs naive (MAE) | 1 month | 3 months | 6 months |
+|---|---|---|---|
+| All, as published (n 1,674 / 1,589 / 1,548) | +7.0% (p=.003) | +21.3% (p<.001) | +25.6% (p<.001) |
+| All, month-end (above) | +8.7% | +23.0% | +21.8% |
+| As published vs month-end, DM on the same pairs | worse, p=.023 | worse, p=.036 | better, p=.003 |
+| 2015-19 | -9.3% | -15.9% | -20.1% |
+| 2020-22 | +7.2% | +7.5% | +1.3% (p=.82) |
+| 2023 to Sep 2024 | +20.3% | +41.6% | +53.9% |
+| Oct 2024 to Aug 2026 (n 146 / 102 / 114) | -28.7% | +1.8% (p=.65) | +9.1% |
+
+Applying the release lags costs a little at 1 and 3 months, as the weekly D-67 audit found, and helps
+at 6 months, mainly by losing less in 2015-19. On 2024-26 the as-published monthly GRU loses at 1 month,
+ties at 3 and wins at 6. It is still not like for like with the weekly test (month values as targets,
+filled prices as inputs). Deliverable:
+`Downloads/20261012_FEWSNET-GRU_Monthly_GapFilled_AsPublished_PeriodMarket_v1.xlsx`. Year-on-year check of
+the month-end run against a point-in-time seasonal naive:
+`Downloads/20261012_FEWSNET-GRU_Monthly_GapFilled_YearOnYear_v1.xlsx` (the seasonal pattern broke in the
+GRU's worst years, 2019 and 2022; in 2018 and 2026 it held and the GRU still lost to it).
+
+**D-75 production checks 1 to 4 (2026-10-12), on the as-published run.** Workbook
+`Downloads/20261012_FEWSNET-GRU_Monthly_ProductionChecks_1to4_v1.xlsx`.
+1. *D-45 bar:* PASS at 1/3/6 months (DM p .003 / <.001 / <.001; margin over seed SD 6.2 / 26.5 / 15.8).
+   By period it fails 2015-19 at every horizon, 2020-22 at 6 months and 2024-26 at 1 and 3 months.
+2. *Head-to-head with weekly production,* matched on market and target month, both scored on FEWS NET's
+   month value (weekly forecasts issued a median 22 days earlier, the only way their target week lands in
+   the same month). 2015 to Sep 2024: weekly better at 1 and 3 months (monthly 13% and 8% worse, DM and
+   seed-paired t both clear), no winner at 6. Oct 2024 to Aug 2026: monthly better at all three (+67 / +34
+   / +22%), driven by the weekly model's collapse there.
+3. *Truncation test* (`src/truncation_test_monthly.py`; the gap-filled panel builder moved into the repo
+   as `src/build_gapfilled_panel.py` with a cutoff argument, reproducing panel v3 exactly). Of 842
+   sampled windows, 821 identical. Every difference traces to the 36 values recovered from
+   `value_one_year_ago`: they become public only with the following year's row (May to Aug 2026), so
+   scored origins from May 2025 to about May 2026 used them early (as window prices, as the origin price,
+   as lag-12 anchors, and through Dandume's upstream link into Giwa and Saminaka). 48 sampled scored
+   windows exist only because of them. Unscored windows that exist only through interpolation anchored
+   after the origin confirm the grid rule works; such cells can still sit in training windows near a
+   cut, as in the weekly model.
+4. *Fills vs observed only* (`configs/build3_monthly_fxdaily_gapfilled_pit_obsonly.yaml`): on common pairs,
+   2015 to Sep 2024, fills improve the margin over naive from +10.7 / +20.1 / +22.8% to +12.5 / +24.4 /
+   +30.3% (DM p .026 / <.001 / <.001). Without fills only 18 / 9 / 28 forecasts score in 2024-26.
+**Open.** The 2024-26 monthly result (and the head-to-head there) includes the recovered-value look-ahead
+until the run treats those values as public only from their reporting row.
+
+**D-75 owner decision (2026-10-12): the recovered values and the fills are accepted.** Owner instruction
+("an order from the top"): the 36 May to Aug 2025 values recovered from FEWS NET's `value_one_year_ago`
+are treated as available when the forecasts used them, and the gap fills stay; neither is to be revisited
+as a look-ahead. Recorded so any 2024-26 monthly figure is read with it: those values became public only
+with the May to Aug 2026 rows, so origins from May 2025 to about May 2026 rest on them
+(`outputs/d75_truncation_test.csv`). Also recorded at the owner's request: on 2015 to Sep 2024 the weekly
+production GRU beats the monthly one at 1 and 3 months on matched pairs (check 2), with no winner at 6
+months. The owner's priority for the production choice is the 2024-26 period, where the monthly GRU
+beats the weekly one at all three horizons.
+
+**D-75 soft blend added to the monthly production setup (owner, 2026-10-12).** `src/regime_blend_monthly.py`
+(the monthly counterpart of `src/regime_blend.py`: seasonal index from FEWS NET observed months, volatility
+over 6 monthly changes, z_scale from readings before the origin; all point in time) on
+`outputs/d75_monthly_gapfilled_pit` -> `outputs/regime_blend_soft_monthly_pit/`. Average weight on the
+GRU 0.63; 357-370 forecasts per horizon have no seasonal index yet and stay GRU only. All years: +8.6 /
++19.6 / +23.8% vs naive (GRU alone +7.0 / +21.3 / +25.6%; blend vs GRU p .09 / .07 / .12). Oct 2024 to
+Aug 2026: -19.8 / +0.4 / +19.5% (GRU alone -28.7 / +1.8 / +9.1%; p .03 / .78 / <.001). The monthly
+production setup is therefore `configs/build3_monthly_fxdaily_gapfilled_pit.yaml` + this blend, pending
+the remaining checks (8, 9, 13) and a recorded production switch.
+
+**D-75 serving (2026-10-12).** Monthly production model trained with `--save-latest-cut-models`
+(`outputs/d75_monthly_gapfilled_pit_serving/`, cut 2026-06-01, 7 seeds). `src/predict.py` now handles monthly
+runs (publication-date FX cutoff, staleness in months) and `--blend` adds the point-in-time soft blend
+(`regime_blend_monthly.blend`, reading observed months from the panel's `price_flag`). First live forecast:
+`outputs/d75_monthly_gapfilled_pit_serving/predictions/2026-10-12.csv`, origin Aug 2026 (forecast date
+15 Sep 2026), 11 markets with an Aug 2026 price, horizons 1/3/6, weight on the GRU 0.3 to 0.5.
+
+**D-75 publication dates checked (2026-10-12).** `docs/PUBLICATION_LAGS.md` replaces the assumed release
+dates with evidence. FEWS NET's API carries a `status_changed` timestamp per value: monthly maize is
+usually public 1 to 5 days after month end, but the share of months public by the 15th of the next month
+is 33% (2015-19), 78% (2020-22), 90% (2023 to Sep 2024) and 71% (Oct 2024 to Aug 2026), and Jan, Apr and
+Sep 2025 appeared 10 to 13 months late (the 2025 pause). NBS diesel comes about 18 days after month end,
+up to about 47 days. CHIRPS rainfall on HDX updates every 14 days, about 5 days behind; MODIS NDVI every
+30 days, about 15 to 45 days behind, and is smoothed so recent values are revised. CBN is daily; NBS CPI
+about the 15th. The Kaduna/Kano source reports within 6 days; AFEX and NAERLS release dates cannot be
+confirmed from the files held. No model was rerun on these findings.
+
+**D-75 data fragility documented (owner, 2026-10-12).** Out of the workstream's control, so recorded rather
+than fixed: `docs/DATA_FRAGILITY.md` (seven markets without FEWS NET prices after Jan 2025; five months with
+no FEWS NET value anywhere; late and revised FEWS NET months; three third-party fill sources carrying Giwa,
+Saminaka and part of Dandume and Kaura Namoda, with unconfirmed terms; diesel switch in Oct 2024; revised
+climate feeds; official FX only).
+
+**D-75 direction analysis (2026-10-12)** on the monthly production setup (as published + blend),
+`Downloads/20261012_FEWSNET-GRU_Monthly_DirectionAnalysis_v1.xlsx`. Benchmarks: always rise, always fall, last
+month's direction, seasonal direction. Over all years the blend does not beat the best simple call at 1
+or 6 months (61.0 vs 62.5% last month's direction; 64.3 vs 68.1% always rise) and is ahead at 3 months
+without significance (66.3 vs 64.6%, p .08). It beats the best simple call clearly in 2020-22 and 2023-24
+at 1 and 3 months, is near a coin toss in 2015-19, and in 2024-26 scores 50.4 / 66.7 / 80.7% against last
+month's direction 66.1% (1 month) and seasonal direction 69.7 / 80.7% (3, 6 months). The model leans to
+rises: it calls 71% of actual rises but 45% of falls overall, and 19% of falls at 1 month in 2024-26, when
+last month's direction called 83% of the big moves. FEWS NET-only diesel rerun planned for 2026-10-13
+(memory note).
+**Direction follow-up (owner, 2026-10-12).** The weak calling of falls (19% of falls at 1 month in
+2024-26) is parked until import-volume data are monitored, to test whether they catch these falls, and
+until the pending expert meeting on the 2025 import influx.
+
+**D-75 bias check: "too low, moves too little" (2026-10-12)**, monthly as-published GRU and blend. The bias
+is not fixed in sign: forecasts are too low in rising spells (2023-24: 86% too low at 6 months, mean -14%)
+and too high in falling ones (2024-26: 82% too high at 6 months, mean +35%). Forecast moves are about half
+the size of real moves (move ratio 0.4-0.6 in every period); the median of 7 seeds is not the cause
+(single seeds move about as little). Mincer-Zarnowitz slope by period: about 0 in 2015-19 (moves carry no
+information there), about 1 in 2020-24 (well sized), 1.4 at 6 months in 2024-26 (too timid). Correction
+of earlier wording: an overall slope below 1 (0.6-0.8 here, 0.68 for weekly production) means forecast
+moves are larger than their accuracy supports, not that the model under-reacts. Post-hoc fixes, all point
+in time, make things worse: a mean-bias correction, a Mincer-Zarnowitz rescale (all history or last 36
+months) and a 1.5x amplification all lower the 2024-26 margin over naive (6 months: +9.1% GRU, -16 to -25%
+corrected, +3.4% amplified). Reading: the bias is lag at turning points, the model following the trend it
+has seen; the soft blend is the only adjustment that helps 2024-26. Fixes would need new information
+(import volumes, parallel FX) or retraining (D-73's direction balance, not yet tried on monthly).
+
+**D-75 losses to weekly, decomposed (2026-10-12)**, on the matched pairs of check 2. Each model is scored
+against its own starting price (monthly: the month's FEWS NET value; weekly: the latest weekly price).
+2015 to Sep 2024: the weekly starting price is 13.2% closer to the target month at 1 month (fresher data,
+even though issued about 22 days earlier), 0.4-0.5% at 3 and 6. Skill over its own naive, monthly vs
+weekly: +14.5 vs +12.8% (1 month), +26.6 vs +31.6% (3), +24.9 vs +22.0% (6). So the monthly model is not
+worse at 1 month (the weekly edge is fresher data), is about 5 points less skilled at 3 months, and
+better at 6. In 2015-19 both lose to their naive (monthly -11 / -17 / -15%, weekly -7 / -16 / -10%). In
+2025-26 the weekly starting price was far off (its naive 257% worse than monthly's at 1 month), so the
+weekly collapse there is largely stale weekly data.
+
+**D-75 1-month losses in 2024-26, and the import hypothesis (2026-10-12).** Monthly production setup, 1 month,
+Oct 2024 to Aug 2026 (n 146): naive MAE 27.2, GRU 34.9, blend 32.5. 71% of the GRU's error comes from months
+when prices fell (48% of cases). From Jul 2025 to Jan 2026 the GRU forecast a rise every month (+0.4 to +9%
+on average) while prices fell 4 to 12% a month. Momentum does not fix it: carrying last month's change
+forward scores 37.6 and half of it 29.8, both worse than naive. Month-to-month persistence of changes is
+not new (correlation 0.13-0.30 in every period). External accounts: a 150-day duty-free import window for
+maize, rice and wheat from July 2024; Customs credits the Q1 2025 waivers (maize N45.3bn FOB) with 12-18%
+lower prices; good 2024 and 2025 harvests; maize down more than 50% nationally in 2025. Import volumes
+exist only quarterly from NBS (a few months' lag) and as annual USDA estimates, so as a 1-month warning
+they would arrive late; a policy-event marker and a monthly import-parity gap (world maize price in naira
+against the domestic price) are available sooner. Hypothesis kept open for the expert meeting.
+
+**D-75 checks 8, 9, 12 results (2026-10-12)**, each against the as-published base run on the same pairs
+(`outputs/d75_checks/`, configs in `configs/_checks/`). Margins vs naive, all years / Oct 2024 to Aug 2026,
+at 1 / 3 / 6 months (base: +7.0 / +21.3 / +25.6 and -28.7 / +1.8 / +9.1).
+- Reproducibility: rerun of h1 identical (max difference 0.0).
+- Release lags. Diesel, rainfall, NDVI two months back: all years unchanged (DM p about .5); 2024-26
+  -25.2 / +10.0 / +9.7 (better at 1 and 3 months, p .03 / .001). Naira read on the 7th: all years +7.8 /
+  +22.8 / +25.0; 2024-26 -36.9 / +5.5 / +14.1 (worse at 1 month, better at 3 and 6). FEWS NET a month late
+  (prices through o, forecast on the 15th of o+2, scored on the same target months): MAE 56% / 9% / 10%
+  higher than the base at 1 / 3 / 6 months over all years, 81% / 35% / 1% higher in 2024-26. The FEWS NET
+  release date is the assumption the results depend on; the driver lags are not.
+- Brackets. Lookback 3: all years about equal (+8.0 / +21.3 / +24.1); 2024-26 -21.0 / +7.7 / +13.9, better
+  at every horizon (p .000 / .008 / .008). Lookback 9: better at 1 month over all years (+9.4, p .001),
+  worse in 2024-26. Lookback 12: worse in 2024-26 at every horizon. Hidden 64: worse at every horizon over
+  all years. Hidden 256: no significant change. Lookback 3 is a candidate, but it was found by looking at
+  2024-26, the period it would be judged on.
+
+**D-75 import parity from the NADIH volatility workbook (2026-10-12).** `20261012_NADIH_FEWSNET_Maize-Volatility_v3.xlsx`
+(sheet `Parity price`) carries monthly FOB maize (US$/t), naira rate, freight (US$/t) and customs duty, Jan
+2006 to Sep 2026; landed parity at Apapa = (FOB + freight) x rate / 1000 x (1 + duty). Duty in the sheet:
+30% to May 2023, 5% from Jun 2023, 0 from Aug 2024 (the duty-free window; the sheet keeps 0 to Sep 2026,
+unconfirmed). Average FEWS NET price against parity: +154% in Aug 2024, then closing every month to -10%
+by Nov 2025 and -21% in Jan 2026, after which prices stopped falling. Rank correlation of the gap with the
+next domestic change (all markets): 2013-19 -0.01 / -0.12 / -0.22 (1 / 3 / 6 months); 2023-24 -0.25 / -0.53
+/ -0.50; 2025-26 -0.40 / -0.68 / -0.75. A wide gap was followed by falls in exactly the period the model
+missed. Unconfirmed: the FOB and freight sources and the duty after Dec 2024. Not yet a model input.
+
+**D-75 parity gap added (2026-10-12).** `configs/build3_monthly_fxdaily_gapfilled_pit_parity.yaml`: the
+as-published monthly production config plus one flat feature, log(market price / import parity) at the
+origin (`src/data.py attach_parity`; parity file `data/external/20261012_NADIH_ImportParity_Maize_Monthly_2006-01_2026-09_v1.csv`
+from the NADIH volatility workbook). 73,219 parameters. Same 4,811 pairs as the base. D-45 bar: PASS at 1 / 3
+/ 6 months (DM p .0003 / <.0001 / <.0001; margin over seed SD 3.2 / 11.6 / 20.6).
+Margins vs naive, GRU base -> GRU with parity (DM p of the difference):
+- All years: +7.0 -> +8.4 (p .19), +21.3 -> +23.2 (.11), +25.6 -> +25.0 (.81); total +21.0 -> +21.6.
+- 2015-19: total -16.8 -> -11.4 (p<.001). 2020-22: +4.9 -> +14.3 (p<.001). 2023 to Sep 2024: +43.9 -> +32.6
+  (worse, p<.001).
+- Oct 2024 to Aug 2026: -28.7 -> -17.1, +1.8 -> +17.1, +9.1 -> +42.6 (all p<.001); total +2.2 -> +28.2.
+With parity the soft blend no longer helps 2024-26 (+6.8 at 3 months and +35.7 at 6 against the GRU's
++17.1 and +42.6). Falls caught at 1 month in 2024-26: 24% (base blend 19%). Caveats: FOB and freight
+sources and the duty after Dec 2024 unconfirmed; the feature was chosen after seeing the 2025 fall.
+
+## D-77. Owner decision: the monthly parity GRU is the FEWSNET production model
+
+**Decision (owner, 2026-10-12).** Production moves from the weekly D-68 GRU
+(`configs/build3_fxdaily_fxonly_pit.yaml`, now the reference) to
+`configs/build3_monthly_fxdaily_gapfilled_pit_parity.yaml`: the monthly as-published GRU on gap-filled panel
+v3 with the import-parity gap (D-75), without the soft blend. Basis: 2024-26, the owner's priority period,
+-17.1 / +17.1 / +42.6% vs naive at 1 / 3 / 6 months (total +28.2%), D-45 PASS at every horizon; all years
++8.4 / +23.2 / +25.0%. Serving model: `outputs/production_monthly_parity_serving/` (cut 2026-06-01, 7 seeds),
+`python src/predict.py --run-dir outputs/production_monthly_parity_serving`; first forecast 2026-10-12
+(prices to Aug 2026, forecast date 15 Sep 2026, 11 markets).
+
+**Falls caught** (share of real price falls the forecast called as falls), 2024-26, old monthly blend ->
+parity GRU: 1 month 19% -> 44%; 3 months 29% -> 62%; 6 months 72% -> 80%. Error in falling months, 6
+months: 190 -> 119 NGN/kg (naive 200). All years: 45 -> 50%, 56 -> 57%, 60 -> 54% (rises caught unchanged).
+
+**Known limits.** Loses to naive at 1 month in 2024-26; weekly was better on 2015-24 at 1 and 3 months
+(fresher data); the recovered values and fills are owner-accepted (D-75); parity's FOB and freight sources
+and the post-Dec-2024 duty are unconfirmed; the parity input was chosen after seeing the 2025 fall.
