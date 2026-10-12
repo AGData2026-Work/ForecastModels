@@ -3545,3 +3545,14 @@ than fixed: `docs/DATA_FRAGILITY.md` (seven markets without FEWS NET prices afte
 no FEWS NET value anywhere; late and revised FEWS NET months; three third-party fill sources carrying Giwa,
 Saminaka and part of Dandume and Kaura Namoda, with unconfirmed terms; diesel switch in Oct 2024; revised
 climate feeds; official FX only).
+
+**D-75 direction analysis (2026-10-12)** on the monthly production setup (as published + blend),
+`Downloads/20261012_FEWSNET-GRU_Monthly_DirectionAnalysis_v1.xlsx`. Benchmarks: always rise, always fall, last
+month's direction, seasonal direction. Over all years the blend does not beat the best simple call at 1
+or 6 months (61.0 vs 62.5% last month's direction; 64.3 vs 68.1% always rise) and is ahead at 3 months
+without significance (66.3 vs 64.6%, p .08). It beats the best simple call clearly in 2020-22 and 2023-24
+at 1 and 3 months, is near a coin toss in 2015-19, and in 2024-26 scores 50.4 / 66.7 / 80.7% against last
+month's direction 66.1% (1 month) and seasonal direction 69.7 / 80.7% (3, 6 months). The model leans to
+rises: it calls 71% of actual rises but 45% of falls overall, and 19% of falls at 1 month in 2024-26, when
+last month's direction called 83% of the big moves. FEWS NET-only diesel rerun planned for 2026-10-13
+(memory note).
