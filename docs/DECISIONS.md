@@ -3583,3 +3583,15 @@ worse at 1 month (the weekly edge is fresher data), is about 5 points less skill
 better at 6. In 2015-19 both lose to their naive (monthly -11 / -17 / -15%, weekly -7 / -16 / -10%). In
 2025-26 the weekly starting price was far off (its naive 257% worse than monthly's at 1 month), so the
 weekly collapse there is largely stale weekly data.
+
+**D-75 1-month losses in 2024-26, and the import hypothesis (2026-10-12).** Monthly production setup, 1 month,
+Oct 2024 to Aug 2026 (n 146): naive MAE 27.2, GRU 34.9, blend 32.5. 71% of the GRU's error comes from months
+when prices fell (48% of cases). From Jul 2025 to Jan 2026 the GRU forecast a rise every month (+0.4 to +9%
+on average) while prices fell 4 to 12% a month. Momentum does not fix it: carrying last month's change
+forward scores 37.6 and half of it 29.8, both worse than naive. Month-to-month persistence of changes is
+not new (correlation 0.13-0.30 in every period). External accounts: a 150-day duty-free import window for
+maize, rice and wheat from July 2024; Customs credits the Q1 2025 waivers (maize N45.3bn FOB) with 12-18%
+lower prices; good 2024 and 2025 harvests; maize down more than 50% nationally in 2025. Import volumes
+exist only quarterly from NBS (a few months' lag) and as annual USDA estimates, so as a 1-month warning
+they would arrive late; a policy-event marker and a monthly import-parity gap (world maize price in naira
+against the domestic price) are available sooner. Hypothesis kept open for the expert meeting.
