@@ -3556,3 +3556,6 @@ month's direction 66.1% (1 month) and seasonal direction 69.7 / 80.7% (3, 6 mont
 rises: it calls 71% of actual rises but 45% of falls overall, and 19% of falls at 1 month in 2024-26, when
 last month's direction called 83% of the big moves. FEWS NET-only diesel rerun planned for 2026-10-13
 (memory note).
+**Direction follow-up (owner, 2026-10-12).** The weak calling of falls (19% of falls at 1 month in
+2024-26) is parked until import-volume data are monitored, to test whether they catch these falls, and
+until the pending expert meeting on the 2025 import influx.
