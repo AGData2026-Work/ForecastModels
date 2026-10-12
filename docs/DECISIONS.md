@@ -3529,3 +3529,13 @@ runs (publication-date FX cutoff, staleness in months) and `--blend` adds the po
 (`regime_blend_monthly.blend`, reading observed months from the panel's `price_flag`). First live forecast:
 `outputs/d75_monthly_gapfilled_pit_serving/predictions/2026-10-12.csv`, origin Aug 2026 (forecast date
 15 Sep 2026), 11 markets with an Aug 2026 price, horizons 1/3/6, weight on the GRU 0.3 to 0.5.
+
+**D-75 publication dates checked (2026-10-12).** `docs/PUBLICATION_LAGS.md` replaces the assumed release
+dates with evidence. FEWS NET's API carries a `status_changed` timestamp per value: monthly maize is
+usually public 1 to 5 days after month end, but the share of months public by the 15th of the next month
+is 33% (2015-19), 78% (2020-22), 90% (2023 to Sep 2024) and 71% (Oct 2024 to Aug 2026), and Jan, Apr and
+Sep 2025 appeared 10 to 13 months late (the 2025 pause). NBS diesel comes about 18 days after month end,
+up to about 47 days. CHIRPS rainfall on HDX updates every 14 days, about 5 days behind; MODIS NDVI every
+30 days, about 15 to 45 days behind, and is smoothed so recent values are revised. CBN is daily; NBS CPI
+about the 15th. The Kaduna/Kano source reports within 6 days; AFEX and NAERLS release dates cannot be
+confirmed from the files held. No model was rerun on these findings.
