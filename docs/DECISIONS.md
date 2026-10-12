@@ -3478,3 +3478,27 @@ filled prices as inputs). Deliverable:
 the month-end run against a point-in-time seasonal naive:
 `Downloads/20261012_FEWSNET-GRU_Monthly_GapFilled_YearOnYear_v1.xlsx` (the seasonal pattern broke in the
 GRU's worst years, 2019 and 2022; in 2018 and 2026 it held and the GRU still lost to it).
+
+**D-75 production checks 1 to 4 (2026-10-12), on the as-published run.** Workbook
+`Downloads/20261012_FEWSNET-GRU_Monthly_ProductionChecks_1to4_v1.xlsx`.
+1. *D-45 bar:* PASS at 1/3/6 months (DM p .003 / <.001 / <.001; margin over seed SD 6.2 / 26.5 / 15.8).
+   By period it fails 2015-19 at every horizon, 2020-22 at 6 months and 2024-26 at 1 and 3 months.
+2. *Head-to-head with weekly production,* matched on market and target month, both scored on FEWS NET's
+   month value (weekly forecasts issued a median 22 days earlier, the only way their target week lands in
+   the same month). 2015 to Sep 2024: weekly better at 1 and 3 months (monthly 13% and 8% worse, DM and
+   seed-paired t both clear), no winner at 6. Oct 2024 to Aug 2026: monthly better at all three (+67 / +34
+   / +22%), driven by the weekly model's collapse there.
+3. *Truncation test* (`src/truncation_test_monthly.py`; the gap-filled panel builder moved into the repo
+   as `src/build_gapfilled_panel.py` with a cutoff argument, reproducing panel v3 exactly). Of 842
+   sampled windows, 821 identical. Every difference traces to the 36 values recovered from
+   `value_one_year_ago`: they become public only with the following year's row (May to Aug 2026), so
+   scored origins from May 2025 to about May 2026 used them early (as window prices, as the origin price,
+   as lag-12 anchors, and through Dandume's upstream link into Giwa and Saminaka). 48 sampled scored
+   windows exist only because of them. Unscored windows that exist only through interpolation anchored
+   after the origin confirm the grid rule works; such cells can still sit in training windows near a
+   cut, as in the weekly model.
+4. *Fills vs observed only* (`configs/build3_monthly_fxdaily_gapfilled_pit_obsonly.yaml`): on common pairs,
+   2015 to Sep 2024, fills improve the margin over naive from +10.7 / +20.1 / +22.8% to +12.5 / +24.4 /
+   +30.3% (DM p .026 / <.001 / <.001). Without fills only 18 / 9 / 28 forecasts score in 2024-26.
+**Open.** The 2024-26 monthly result (and the head-to-head there) includes the recovered-value look-ahead
+until the run treats those values as public only from their reporting row.

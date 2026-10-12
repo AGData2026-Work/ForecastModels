@@ -35,26 +35,25 @@ HORIZONS = [1, 3, 6]
 LOOKBACK = 6
 
 
-def main() -> None:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--filled", required=True)
-    ap.add_argument("--published", action="store_true",
-                    help="as-published variant: the forecast for month o is made on the 15th of o+1 "
-                         "(after FEWS NET's release of month o); diesel, rainfall and NDVI lag one month; "
-                         "a month's price is a usable target from its own origin index")
-    a = ap.parse_args()
-    sfx = "_pit" if a.published else ""
-    log: dict = {"source": a.filled, "published": a.published}
-    L = pd.read_excel(a.filled, "Long_panel")
+DRIVERS = ["diesel", "rainfall_simple_average", "rainfall_inverse_distance", "ndvi_simple_average", "ndvi_inverse_distance"]
+
+
+def build_panel(L: pd.DataFrame, w: pd.DataFrame, published: bool, observed_only: bool = False):
+    """Monthly model panel from the gap-filled long panel `L` and the weekly driver panel `w`.
+    Returns (panel, log, price, flag, fill_kind, markets)."""
+    log: dict = {"published": published, "observed_only": observed_only}
+    L = L.copy()
     L["month"] = pd.PeriodIndex(L["month"], freq="M")
     months = pd.period_range("2012-05", "2026-08", freq="M")
     L = L[L["month"].isin(months)]
+    if observed_only:  # D-75 sensitivity: FEWS NET observed values only, every fill removed
+        L.loc[L["flag"] != "observed", ["price_NGN_per_kg"]] = np.nan
+        L.loc[L["flag"] != "observed", "flag"] = "missing"
     price = L.set_index(["market", "month"])["price_NGN_per_kg"]
     flag = L.set_index(["market", "month"])["flag"]
     fill_kind = L.set_index(["market", "month"])["fill_kind"].fillna("")
     markets = sorted(L["market"].unique())
-
-    w = pd.read_parquet("data/panel_weekly_oos2026_fewsdiesel.parquet")
+    w = w.copy()
     w["date"] = pd.to_datetime(w["date"])
     w["month"] = w["date"].dt.to_period("M")
     drv = w.groupby(["market", "month"]).agg(
@@ -67,16 +66,16 @@ def main() -> None:
     for col in ["upstream_market", "upstream_lag_weeks", "market_kind", "state", "market_id"]:
         P[col] = P.groupby("market")[col].transform(lambda s: s.ffill().bfill())
     carried = {}
-    for col in ["diesel", "rainfall_simple_average", "rainfall_inverse_distance", "ndvi_simple_average", "ndvi_inverse_distance"]:
+    for col in DRIVERS:
         before = P[col].isna()
         P[col] = P.groupby("market")[col].transform(lambda s: s.ffill())
         carried[col] = int((before & P[col].notna()).sum())
     log["driver_months_carried_forward"] = carried
-    if a.published:
+    if published:
         # Diesel for month M appears on the 20th of M+1 (D-67), after the 15th-of-next-month forecast
         # date; a month's mean rainfall/NDVI needs dekads to its end plus the release lag (D-67 uses 4
         # weeks). At the forecast for month o, both are known through month o-1.
-        for col in ["diesel", "rainfall_simple_average", "rainfall_inverse_distance", "ndvi_simple_average", "ndvi_inverse_distance"]:
+        for col in DRIVERS:
             P[col] = P.groupby("market")[col].shift(1)
         log["drivers_lagged_months"] = 1
     key = list(zip(P["market"], P["month"]))
@@ -87,7 +86,7 @@ def main() -> None:
     P["target_from_price"] = False
     # month-end design: month t is known by the end of t+1. As-published design: the origin index of
     # month o already stands for the 15th of o+1, so month t is known from its own index.
-    P["target_known_date"] = (P["month"] + (0 if a.published else 1)).dt.to_timestamp()
+    P["target_known_date"] = (P["month"] + (0 if published else 1)).dt.to_timestamp()
     P["upstream_price"] = [price.get((u, mo), np.nan) if isinstance(u, str) else np.nan
                            for u, mo in zip(P["upstream_market"], P["month"])]
     for col, v in [("n_price_weeks", 0), ("n_weeks", 0), ("n_proxy_weeks", 0), ("share_interpolated_diesel", 1.0),
@@ -102,8 +101,10 @@ def main() -> None:
     P["market_id"] = P["market_id"].astype("int8")
     log["price_cells_by_flag"] = P["price_flag"].value_counts().to_dict()
     log["target_cells_observed"] = int(P["target_price"].notna().sum())
-    P.drop(columns=["month"]).to_parquet(f"data/panel_monthly_gapfilled{sfx}.parquet", index=False)
+    return P.drop(columns=["month"]), log, price, flag, fill_kind, markets
 
+
+def build_grid(price, flag, fill_kind, markets):
     # right-hand anchor month of every interpolated cell, from its fill_kind text
     anchor = {}
     for (m, mo), fk in fill_kind.items():
@@ -126,7 +127,26 @@ def main() -> None:
                 if np.isfinite(act):
                     rows.append(dict(market=m, horizon=h, origin=o.to_timestamp(), target=t.to_timestamp(),
                                      actual=act, naive=p0, panel_fe=np.nan, origin_flag=flag.get((m, o))))
-    G = pd.DataFrame(rows)
+    return pd.DataFrame(rows), drops
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--filled", required=True)
+    ap.add_argument("--published", action="store_true",
+                    help="as-published variant: the forecast for month o is made on the 15th of o+1 "
+                         "(after FEWS NET's release of month o); diesel, rainfall and NDVI lag one month; "
+                         "a month's price is a usable target from its own origin index")
+    ap.add_argument("--observed-only", action="store_true",
+                    help="sensitivity: drop every fill, FEWS NET observed prices only")
+    a = ap.parse_args()
+    sfx = ("_pit" if a.published else "") + ("_obsonly" if a.observed_only else "")
+    P, log, price, flag, fill_kind, markets = build_panel(
+        pd.read_excel(a.filled, "Long_panel"), pd.read_parquet("data/panel_weekly_oos2026_fewsdiesel.parquet"),
+        a.published, a.observed_only)
+    log["source"] = a.filled
+    P.to_parquet(f"data/panel_monthly_gapfilled{sfx}.parquet", index=False)
+    G, drops = build_grid(price, flag, fill_kind, markets)
     G.to_parquet(f"data/monthly_grid_gapfilled{sfx}.parquet", index=False)
     log["grid"] = {"rows_by_horizon": G.groupby("horizon").size().to_dict(), "origins_dropped": drops,
                    "rows_with_filled_origin_by_horizon": G[G.origin_flag != "observed"].groupby("horizon").size().to_dict(),
