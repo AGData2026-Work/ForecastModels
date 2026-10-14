@@ -10,7 +10,7 @@ decision log, `docs/DECISIONS.md`, is the authority; this page only points into 
 
 Monthly GRU, forecast on the 15th of the month after the latest price month, on the gap-filled FEWS NET
 panel v3 (`src/build_gapfilled_panel.py`, `src/build_monthly_gapfilled.py --published`), daily CBN FX scores
-read on the 14th, diesel/rainfall/NDVI one month back, plus the import-parity gap. No soft blend (it lowers
+read on the 14th, diesel/rainfall/NDVI one month back, the upstream market's price for the same month (no lag), plus the import-parity gap. No soft blend (it lowers
 the 2024-26 result once parity is in). Owner-accepted: recovered May-Aug 2025 values and the fills (D-75).
 
 ## Shadow, not production

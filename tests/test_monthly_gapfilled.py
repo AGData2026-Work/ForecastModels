@@ -101,6 +101,14 @@ class TestMonthlyPanel:
         r = P[(P.market == "Biu") & (P.date == "2020-07-01")].iloc[0]
         assert pd.Timestamp(r.target_known_date) == pd.Timestamp("2020-07-01")
 
+    def test_upstream_is_same_month(self):
+        # production: Biu's upstream (Dandume) price is Dandume's own price for the same month, no lag
+        P, *_ = build_panel(self._long(), _weekly(), published=True)
+        P = P.set_index(["market", "date"])
+        d = pd.Timestamp("2020-07-01")
+        assert P.loc[("Biu", d), "upstream_price"] == P.loc[("Dandume", d), "price"]
+        assert np.isnan(P.loc[("Dandume", d), "upstream_price"])      # Dandume has no upstream market
+
     def test_observed_only_removes_fills(self):
         P, *_ = build_panel(self._long(), _weekly(), published=True, observed_only=True)
         assert np.isnan(P[(P.market == "Biu") & (P.date == "2020-06-01")].price.iloc[0])

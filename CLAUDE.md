@@ -31,7 +31,7 @@ else is decommissioned (`docs/DECOMMISSIONED_20260928.md`).
 - FEWSNET (main, D-77, 2026-10-12, replacing D-68's weekly config): monthly GRU on
   `configs/build3_monthly_fxdaily_gapfilled_pit_parity.yaml`: gap-filled FEWS NET panel v3
   (`src/build_gapfilled_panel.py` -> `src/build_monthly_gapfilled.py --published`), forecast on the 15th
-  of the month after the latest price month, daily CBN FX scores, drivers one month back, import-parity
+  of the month after the latest price month, daily CBN FX scores, drivers one month back, upstream market price for the same month (no lag), import-parity
   gap (`attach_parity`), no blend. Evaluation `outputs/d75_monthly_parity_pit/h{1,3,6}`; serving model
   `outputs/production_monthly_parity_serving/` via `src/predict.py`. The weekly D-68 config
   (`configs/build3_fxdaily_fxonly_pit.yaml`) is now the reference; `docs/PUBLICATION_LAGS.md` and

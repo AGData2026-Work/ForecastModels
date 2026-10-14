@@ -14,7 +14,8 @@ Construction (May 2012 to Aug 2026, month-start dates, the monthly panel's layou
 - target_price: the FEWS NET observed value only (NaN on every filled month), so no filled value is
   ever a training target; target_known_date = the next month, i.e. known by the end of the month
   after (FEWS NET's API values appear around the 15th of the next month).
-- upstream_price: the upstream market's gap-filled price in the same month.
+- upstream_price: the upstream market's gap-filled price in the SAME month, no lag (production; both prices are
+  released together). Checks only: --upstream-lag N (N months earlier), --no-upstream (blank).
 - diesel, rainfall, NDVI: monthly means of data/panel_weekly_oos2026_fewsdiesel.parquet, missing
   months carried forward (counted in the log). Not as-published (same as every monthly config).
 - Fourier terms on month of year, as src/build_monthly_panel.py.
@@ -39,10 +40,12 @@ DRIVERS = ["diesel", "rainfall_simple_average", "rainfall_inverse_distance", "nd
 
 
 def build_panel(L: pd.DataFrame, w: pd.DataFrame, published: bool, observed_only: bool = False,
-                driver_lag: int | None = None, diesel: pd.DataFrame | None = None):
+                driver_lag: int | None = None, diesel: pd.DataFrame | None = None, upstream_lag: int = 0,
+                no_upstream: bool = False):
     """Monthly model panel from the gap-filled long panel `L` and the weekly driver panel `w`.
     Returns (panel, log, price, flag, fill_kind, markets)."""
-    log: dict = {"published": published, "observed_only": observed_only}
+    log: dict = {"published": published, "observed_only": observed_only, "upstream_lag_months": upstream_lag,
+                 "no_upstream": no_upstream}
     L = L.copy()
     L["month"] = pd.PeriodIndex(L["month"], freq="M")
     months = pd.period_range("2012-05", "2026-08", freq="M")
@@ -97,8 +100,15 @@ def build_panel(L: pd.DataFrame, w: pd.DataFrame, published: bool, observed_only
     # month-end design: month t is known by the end of t+1. As-published design: the origin index of
     # month o already stands for the 15th of o+1, so month t is known from its own index.
     P["target_known_date"] = (P["month"] + (0 if published else 1)).dt.to_timestamp()
-    P["upstream_price"] = [price.get((u, mo), np.nan) if isinstance(u, str) else np.nan
+    # UPSTREAM TIMING (production, owner-confirmed 2026-10-14): each market gets its upstream market's price for
+    # the SAME month (upstream_lag = 0). Both are FEWS NET monthly values released together around the 15th of
+    # the next month, so the same-month value is public on the forecast date. The weekly panel's
+    # upstream_lag_weeks (1 to 4 weeks) is carried but not read here. A 1-month lag was worse at every horizon
+    # (docs/DECISIONS.md, D-77 follow-up of 2026-10-14); --upstream-lag N exists only for that check.
+    P["upstream_price"] = [price.get((u, mo - upstream_lag), np.nan) if isinstance(u, str) else np.nan
                            for u, mo in zip(P["upstream_market"], P["month"])]
+    if no_upstream:  # D-77 check: no upstream information at all (has_upstream stays, every value is NaN)
+        P["upstream_price"] = np.nan
     for col, v in [("n_price_weeks", 0), ("n_weeks", 0), ("n_proxy_weeks", 0), ("share_interpolated_diesel", 1.0),
                    ("share_interpolated_rainfall", 1.0), ("share_interpolated_ndvi", 1.0)]:
         P[col] = v
@@ -153,6 +163,9 @@ def main() -> None:
     ap.add_argument("--driver-lag", type=int, default=None, help="months diesel/rainfall/NDVI lag (published default 1)")
     ap.add_argument("--horizons", type=int, nargs="+", default=None, help="grid horizons (default 1 3 6)")
     ap.add_argument("--suffix", default=None, help="override the output file suffix")
+    ap.add_argument("--upstream-lag", type=int, default=0, help="months the upstream market's price lags (default 0)")
+    ap.add_argument("--no-upstream", action="store_true",
+                    help="check only: blank every upstream price, so the upstream channel and its mask are zero")
     ap.add_argument("--fewsnet-diesel", default=None,
                     help="FEWS NET API export (.xlsx, sheet diesel_retail_litre): use it as the only diesel source")
     a = ap.parse_args()
@@ -160,7 +173,8 @@ def main() -> None:
     P, log, price, flag, fill_kind, markets = build_panel(
         pd.read_excel(a.filled, "Long_panel"), pd.read_parquet("data/panel_weekly_oos2026_fewsdiesel.parquet"),
         a.published, a.observed_only, a.driver_lag,
-        pd.read_excel(a.fewsnet_diesel, "diesel_retail_litre").set_index("month") if a.fewsnet_diesel else None)
+        pd.read_excel(a.fewsnet_diesel, "diesel_retail_litre").set_index("month") if a.fewsnet_diesel else None,
+        a.upstream_lag, a.no_upstream)
     log["source"] = a.filled
     P.to_parquet(f"data/panel_monthly_gapfilled{sfx}.parquet", index=False)
     G, drops = build_grid(price, flag, fill_kind, markets, a.horizons)

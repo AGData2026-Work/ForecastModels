@@ -1,6 +1,8 @@
 # STATUS: SHADOW, NOT PRODUCTION (D-77, 2026-10-12): run alongside production on every new month; switch only
 # if its lead over production holds. See docs/MODEL_STATUS.md.
 # Variant E: production parity GRU with FEWS NET-only diesel of the origin month (lag 0), lookback 3.
+# UPSTREAM: each market's upstream market price for the SAME month, no lag (both FEWS NET values are released
+# together); a 1-month lag was worse at every horizon (docs/DECISIONS.md D-77 follow-up, 2026-10-14).
 # PARITY GAP: the as-published monthly production config plus one flat feature, log(market price / import
 # parity) at the origin (src/data.py attach_parity; parity = (FOB + freight) x naira rate / 1000 x (1 + duty)
 # from the NADIH volatility workbook). The only change.

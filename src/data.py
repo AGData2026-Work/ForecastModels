@@ -66,7 +66,8 @@ class Panel:
     price: np.ndarray          # (T, M)
     price_filled: np.ndarray   # (T, M) bool -- True where interpolated here
     diesel: np.ndarray
-    upstream: np.ndarray
+    upstream: np.ndarray       # (T, M) upstream market price; weekly panels: lagged upstream_lag_weeks;
+                               # monthly panels: the same month, no lag (src/build_monthly_gapfilled.py)
     rainfall: np.ndarray
     ndvi: np.ndarray
     fourier: np.ndarray        # (T, 4)

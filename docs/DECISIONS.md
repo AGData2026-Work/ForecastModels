@@ -3677,3 +3677,20 @@ diesel of the origin month, lookback 3) runs alongside production; serving model
 `src/compare_shadow.py` scores both models' live forecasts against FEWS NET observed months as they are
 published. Owner's reason to prefer it: one diesel source, published on time since Nov 2025. Switch only if
 its lead holds on new months.
+
+**D-77 follow-up: upstream market lagged one month (2026-10-14).** The monthly panels give each market its
+upstream market's price for the same month (both are FEWS NET values released together around the 15th of
+the next month, so nothing is used early); the weekly lags of 1 to 4 weeks (`upstream_lag_weeks`) are carried
+but not read. Check: `src/build_monthly_gapfilled.py --upstream-lag 1` (new option, default 0), panel
+`data/panel_monthly_gapfilled_pit_uplag1.parquet`, config `configs/_checks/build3_monthly_parity_uplag1.yaml`,
+outputs `outputs/d77_checks/uplag1/` and `uplag1_summary.csv`. Only `upstream_price` differs from the
+production panel; grid identical (same 4,811 pairs). Margins vs naive, production -> lagged, at 1 / 3 / 6
+months (DM p of the difference): all years +8.4 -> +5.3 (<.0001), +23.2 -> +20.8 (.001), +25.0 -> +20.7
+(<.0001); Oct 2024 to Aug 2026 -17.1 -> -21.1 (.19), +17.1 -> +7.7 (.02), +42.6 -> +32.8 (<.0001); total
+2024-26 +28.2 -> +19.2. Worse everywhere; the same-month upstream price stays (owner, 2026-10-14).
+No upstream at all (`--no-upstream`: every upstream price blank, so the channel and its mask are zero; config
+`configs/_checks/build3_monthly_parity_noup.yaml`, outputs `outputs/d77_checks/noup/`, both checks in
+`upstream_checks_summary.csv`): all years +6.4 / +20.8 / +21.2 (p .006 / .002 / <.0001), 2024-26 -19.4 / +9.0
+/ +32.6 (p .34 / .02 / <.0001), total 2024-26 +19.7; falls caught at 3 months 2024-26 62% -> 47%. About the
+same as the 1-month lag: the upstream information is worth about 9 points of the 2024-26 total, and only when
+it is the same month.
