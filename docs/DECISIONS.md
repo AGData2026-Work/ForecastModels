@@ -3643,7 +3643,9 @@ sources and the duty after Dec 2024 unconfirmed; the feature was chosen after se
 `configs/build3_monthly_fxdaily_gapfilled_pit_parity.yaml`: the monthly as-published GRU on gap-filled panel
 v3 with the import-parity gap (D-75), without the soft blend. Basis: 2024-26, the owner's priority period,
 -17.1 / +17.1 / +42.6% vs naive at 1 / 3 / 6 months (total +28.2%), D-45 PASS at every horizon; all years
-+8.4 / +23.2 / +25.0%. Serving model: `outputs/production_monthly_parity_serving/` (cut 2026-06-01, 7 seeds),
++8.4 / +23.2 / +25.0%. [Corrected 2026-10-19 after the `load_grid` evaluation fix (entry "Evaluation bug fixed",
+below): 2024-26 -17.1 / +21.9 / +34.5% (total +24.8%), all years +8.4 / +23.6 / +23.7% (total +21.2%); D-45
+still passes.] Serving model: `outputs/production_monthly_parity_serving/` (cut 2026-06-01, 7 seeds),
 `python src/predict.py --run-dir outputs/production_monthly_parity_serving`; first forecast 2026-10-12
 (prices to Aug 2026, forecast date 15 Sep 2026, 11 markets).
 
@@ -3694,3 +3696,233 @@ No upstream at all (`--no-upstream`: every upstream price blank, so the channel 
 / +32.6 (p .34 / .02 / <.0001), total 2024-26 +19.7; falls caught at 3 months 2024-26 62% -> 47%. About the
 same as the 1-month lag: the upstream information is worth about 9 points of the 2024-26 total, and only when
 it is the same month.
+
+**D-75 follow-up: a 2026 price file as a fill source for Potiskum, Mubi and Giwa (owner, 2026-10-15).**
+`Price Data From January Till Date.xlsx` (white maize, Dec 2025 to 28 Sep 2026, 8 markets, collector
+unconfirmed; its Giwa and Pambegua values track the Kaduna/Kano other source within a few NGN/kg, so it is
+probably the same collector over more states). `src/build_gapfilled_panel.py --extra-2026 <file>` adds it as
+a same-market source for Potiskum, Mubi and Giwa (same-market sources now always rank before stand-ins, which
+leaves v3 unchanged); `--through 2026-09` adds months FEWS NET has not released. Off by default: the default
+build still reproduces panel v3 exactly. Entry errors dropped: bag weights over 200 kg and per-kg values over
+twice bag price / weight (9 rows). Panel v4 (`20261015_FEWSNET_Maize_Monthly_GapFilled_Panel_v4.xlsx`) equals
+v3 through Aug 2026 (Potiskum and Mubi have no gaps there; Giwa keeps the other source) and adds Sep 2026:
+Potiskum 385.87 (405 x 0.9528, 9 overlap months), Mubi 290.50 and Giwa 340.00 (unadjusted, fewer than 6
+overlap months), plus AFEX for Dandume and Saminaka. Production still runs on v3; v4 needs the monthly panel
+extended to Sep 2026 before a model can use it. Lashe Money is a market in Biu town (owner): against FEWS
+NET Biu the ratio is 0.92 to 1.05 over Jan-Aug 2026 and monthly changes correlate 0.65 (against Maiduguri
+1.10 to 1.36 and 0.09), so it is a stand-in for Biu, not Maiduguri: Sep 2026 Biu 318.11 (315.71 x 1.0076,
+8 overlap months). Other markets: Hadejia (Jigawa) runs 8% above Kano but Kano is not source-filled; Biliri and Kumo (Gombe) have no
+FEWS NET overlap since Gombe stopped in Jan 2025; Pambegua duplicates sources already used and ends Jun 2026.
+
+**D-75 follow-up: new crop removed from AFEX fills (owner request, 2026-10-16).** The AFEX weekly panel's
+narrow new-crop rule (a "new" quote is dropped only in weeks where the same market also reports an untagged or
+old one) left new crop in some harvest months: Dandume Sep 2026 279 NGN/kg in the panel against 345 for the
+reporter's "White maize hybrid Old" quotes alone (the "White maize New" quotes ran 218 to 291). Comparing the
+panel with the reporters' WhatsApp messages (`WhatsApp Chat - AFEX Price Update (1).zip`, parsed by
+`src/afex_chat.py`): in months with no new-crop quote the two agree to a median 1.2%; in months with both, the
+panel sits up to 26% below old crop (Tundun Saibu Sep 2023, Danja and Saminaka Oct 2024, Dandume Sep 2026).
+`src/build_gapfilled_panel.py --afex-chat <_chat.txt>` replaces those AFEX cells (76) with the old and untagged
+quotes; off by default (the default build still reproduces v3). Panel v5
+(`20261016_FEWSNET_Maize_Monthly_GapFilled_Panel_v5.xlsx` = v4 plus this option) changes 19 cells against v4:
+Dandume Sep 2026 267.82 -> 330.71, Saminaka Oct 2024 465.4 -> 586.9, Dandume Oct 2025 327.5 -> 344.5, the rest
+under 1% (level ratios shift slightly). September-origin forecasts on v5 (`outputs/d77_checks/sep2026_v5_serving/`)
+move for Dandume and for the three markets whose upstream market is Dandume (Biu, Giwa, Saminaka); Mubi and
+Potiskum are unchanged within 1.3 NGN/kg. Parser limits: bag weights default to 100 kg when none is written;
+prices are the midpoint of the quoted range.
+
+**D-77 follow-up: panel v7 evaluated (2026-10-19).** Gap-filled panel v7 = v3 + corrected AFEX maize panel v2
+(narrow new-crop rule, harvest check, Sep 2026 extract re-tagged; `--afex-maize`) + the 2026 price file
+(`--extra-2026`) + FEWS NET same-market RETAIL as the first fill source and Damaturu <- 2026-file Potiskum
+(`--fews-retail`). Inside the model window it changes 71 cells against v6 (68 fills, mostly May 2012 to late 2013 for
+Kaura Namoda, Giwa, Dandume and Kano; 3 Ibadan interpolations replaced by retail) and adds 45 Ibadan pairs to the
+grid. Config `configs/_checks/build3_monthly_parity_v7.yaml`, outputs `outputs/d77_checks/v7/`. On the 4,811 pairs
+shared with production, margins vs naive at 1 / 3 / 6 months, production -> v7 (DM p of the difference): all years
++8.4 -> +6.6 (<.0001), +23.2 -> +22.9 (.35), +25.0 -> +23.5 (.0003); Oct 2024 to Aug 2026 -17.1 -> -18.8 (.15),
++17.1 -> +13.7 (.008), +42.6 -> +37.9 (<.0001); total 2024-26 +28.2 -> +24.2. v7 still passes D-45 at every horizon
+but is worse than production; production stays on v3. Separated with v6 (v3 + corrected AFEX maize v2 + 2026 file,
+`configs/_checks/build3_monthly_parity_v6.yaml`, `outputs/d77_checks/v6/`; 13 model-panel cells differ from production,
+same pairs): v6 matches production (all years +8.4 / +23.2 / +25.0, 2024-26 -17.1 / +17.1 / +42.7, total +28.3 against
++28.2), so the AFEX corrections are neutral and the whole v7 drop comes from the FEWS NET retail fills (v7 vs v6, 2024-26:
+3 months p .007, 6 months p <.0001; all years 1 month p <.0001). Retail fills not adopted.
+
+**D-77 follow-up: three attempts at the 2024-26 1-month loss (2026-10-19).** Diagnosis first: the 1-month loss in Oct
+2024 to Aug 2026 (-17.1% vs naive, 146 forecasts) sits almost entirely in December and January targets (Dec 2024, Jan
+2025, Dec 2025, Jan 2026): the model expected the usual post-harvest rebound (+2% to +10%) and prices kept falling
+(-1% to -12%). Without the Dec 2024 and Jan 2025 targets the margin is -2.2%. All runs on the production pairs,
+`outputs/d77_checks/idea{4,5,1}/`, configs `configs/_checks/build3_monthly_parity_{nolag52,nofourier,noseason,dirbal,nowcast}.yaml`.
+- Idea 4, mute the learned season (1 month only). No same-month-last-year anchors (`explicit_lag52: false`): 2024-26
+  -17.1 -> -9.2 (p .03), all years +8.4 -> +8.7 (p .75), but 2024-26 outside Dec/Jan +3.3 -> -3.0 (p .06). No Fourier
+  terms: no change. Both: -13.2. The failed rebound comes from the anchors; removing them trades normal months for the
+  two bad winters.
+- Idea 5, direction-balanced training (`training.direction_balance: true`, D-73): all years +8.4 -> +9.5 (p .006) and
+  +23.2 -> +24.9 (p<.0001) at 1 and 3 months, 6 months unchanged; 2024-26 unchanged within noise (-16.6 / +18.8 /
+  +43.0); falls caught at 1 month 50 -> 55% (all years). A general gain, not the fix.
+- Idea 1, early-month source signal (`src/build_nowcast.py`, `features.nowcast_path`, data/external/20261019_Nowcast_
+  EarlyMonth_v1.csv): log change of the market's own AFEX or 2026-file price from month o to the 1st-14th of o+1, public
+  before the forecast on the 15th. 157 market-months, 7 markets; correlates 0.62 with the next FEWS NET monthly change
+  (right sign 72%). As a model input it barely helps at 1 month (all years +9.1, 2024-26 -15.8, both n.s.) and hurts
+  elsewhere (2024-26 3 months +17.1 -> +12.6, p .016; all years 6 months +25.0 -> +22.2, p .0007): too few examples
+  for the network. Used directly instead, at 1 month only, where the signal exists (forecast = naive x exp(k x
+  signal), 119 of 1,674 forecasts, 29 of 146 in 2024-26): k=1 all years +8.4 -> +11.0 (p .010), 2024-26 -17.1 ->
+  -11.6 (p .13); k=0.5 2024-26 -10.2 (p .02), all years +9.7 (p .15). On the covered forecasts alone, 2024-26 goes
+  from -14.1% to +11.4% (k=1). k was not tuned out of sample; the rule depends on AFEX and the 2026 file staying current.
+
+**Retail monthly GRU, a separate series (2026-10-19).** FEWS NET white maize RETAIL, observed only, no fills or proxies
+(owner rule; `Downloads/20261019_FEWSNET_Maize_Monthly_Retail_Panel_v1.xlsx` -> `src/build_monthly_gapfilled.py --published
+--suffix _pit_retail`), production settings otherwise (`configs/_checks/build3_monthly_parity_retail.yaml`,
+`outputs/d77_checks/retail/`). All years: MAPE 9.2 / 17.5 / 23.3% at 1 / 3 / 6 months (wholesale 8.3 / 15.9 / 22.0),
+vs naive +8.7 / +18.4 / +20.8% (wholesale +8.4 / +23.2 / +25.0), falls caught 40 / 49 / 49% (wholesale 50 / 57 / 53).
+Oct 2024 to Aug 2026: no 1- or 3-month forecasts and 29 at 6 months, because FEWS NET retail has 5 months in 2025 and
+the model needs 6 unbroken months plus the price a year earlier. NBS state retail prices (`Downloads/done/20261013_NBS_
+Maize_Retail_Prices_NADIHPrices_v1.xlsx`) were considered as proxies and declined by the owner: they end Oct 2024, track
+FEWS NET market retail weakly (monthly change correlation 0.13-0.41) and 16% of them are NBS's own zone proxies.
+Without the year-earlier anchors (`..._retail_nolag52.yaml`, `outputs/d77_checks/retail_nolag52/`): all years +8.0 /
++15.6 / +10.8% vs naive (the anchors matter at 3 and 6 months); 2024-26 now has 36 / 18 / 29 forecasts, all with targets
+in May-Aug 2026 (1 and 3 months) or Dec 2024-Jan 2025 (6 months): retail +2.7 / +0.4 / +18.4% vs naive, against
+wholesale production on the same market-months -4.4 / -25.0 / +57.2%. Too few recent forecasts to judge.
+
+**Evaluation bug fixed: longer-horizon pairs dropped when the 1-month target month is missing (2026-10-19).**
+`src/data.py load_grid` took each origin's price from the FIRST horizon's naive column (`naive_h1`). With per-horizon
+runs (`--require-horizons 3` or `6`), an origin whose 1-month target month has no FEWS NET value had no 1-month row, so
+origin_price was NaN and `build_grid_windows` dropped its valid 3- and 6-month pairs as "bad_actual_or_origin_price".
+Affected: the monthly production grid 39 pairs at 3 months and 26 at 6 (36 and 20 of them with targets in Oct 2024 to
+Aug 2026), the retail v2 grid 33 and 21. 1-month results, training windows and live forecasts are unaffected (training
+reads the panel, not the grid; predict.py has no grid). Fix: origin price from whichever horizon has a row (naive is the
+origin price at every horizon); test `test_load_grid_origin_price_when_first_horizon_has_no_row`. Production re-scored
+into `outputs/d77_checks/gridfix/production/` (forecasts on previously scored pairs unchanged): 3 months all years
++23.2 -> +23.6 (n 1,589 -> 1,628), Oct 2024 to Aug 2026 +17.1 -> +21.9 (n 102 -> 138); 6 months all years +25.0 ->
++23.7 (n 1,548 -> 1,574), Oct 2024 to Aug 2026 +42.6 -> +34.5 (n 114 -> 134). D-45 still passes at both. The D-77
+headline figures, docs/MODEL_STATUS.md, CLAUDE.md and the decks quote the pre-fix numbers; not yet updated (owner to
+decide). Retail v2 re-scored into `outputs/d77_checks/gridfix/retail_v2/`: 3 months 2024-26 n 9 -> 23.
+Owner decision 2026-10-19: the docs carry the corrected numbers. Production's evaluation folder now holds the
+re-scored 3- and 6-month runs (`outputs/d75_monthly_parity_pit/h3`, `h6`); the pre-fix runs are in
+`outputs/_archive/20261019_pre_gridfix/`. Totals: 2024-26 +28.2 -> +24.8% (418 forecasts), all years +21.6 -> +21.2%.
+Shadow variant E re-scored the same way (`outputs/d77_checks/gridfix/shadowE/`): 2024-26 total +25.0% against
+production's +24.8% (p .73; before the fix +29.9 against +28.2, p .016), 1 month -13.2 against -17.1 (p .048), 3 and
+6 months level; all years +20.7 against +21.2. Its case for a switch now rests on 1 month only.
+
+**Checks from the analyst's v3 regression model (2026-10-21).** Four one-line changes to the production parity config
+(`configs/_checks/build3_monthly_parity_{wkexit,dutygate,producers,nodiesel}.yaml`; switches in `src/data.py
+attach_checks`, all off by default; features from `src/build_extra_signals.py`), scored against production on shared
+pairs with the analyst's keep rule (better in both 2019-24 and 2025-26 targets). Outputs `outputs/d77_checks/v3ideas/`,
+table `summary.csv`. Points = change in % better than naive, check minus production; 2019-24 / 2025-26.
+- wkexit, where the month ended against its own FEWS NET weekly average (national and market-relative). The public
+  API serves only monthly averages and `data/panel_weekly.parquet` ends 2024-09-18, so the signal is 0 (mask 0) from
+  Oct 2024. 1 month +17.3 / +4.3 (all years MAPE 8.30 -> 7.18%, p < .001; 2025-26 p .19, no signal there, so that gain
+  is a training side effect); 3 months +5.4 / +0.1; 6 months +3.0 / -2.7. Passes at 1 and 3 months. Needs weekly
+  quotes after Sep 2024 before it can run live. Uncertain: that every week of month o is public by the 15th of o+1
+  (assumed, since the monthly value is their average).
+- dutygate, parity gap only in 0%-duty months (Aug 2024 on in the parity CSV, which still shows 0% to Sep 2026): 1
+  month 0.0 / -11.2, 3 months -0.6 / -24.6, 6 months +9.0 / -37.7. Fails. The always-on gap carries information in
+  duty years too, and the gate has no end (the analyst's window also requires local price above import cost).
+- producers, a chain-linked index of Dandume, Saminaka, Giwa, Kaura Namoda and Gwandu Dodoru (1- and 3-month change,
+  market gap to it): 1 month +1.3 / +2.9 (all years p .002), 3 months +1.1 / -4.7, 6 months +1.9 / -8.0. Passes at 1
+  month only.
+- nodiesel: 1 month -1.7 / +0.9, 3 months +0.7 / -5.0, 6 months -2.3 / -5.9. Fails; diesel stays (the analyst
+  dropped it from a different model).
+Production unchanged.
+- wkexit_producers, both signals together (`extra_flat_path` now takes a list): 1 month +16.8 / +4.9 (all years MAPE
+  8.30 -> 7.24%), 3 months +3.1 / -3.7, 6 months +5.1 / -4.2. Passes at 1 month only and adds nothing over wkexit
+  alone (+17.3 / +4.3; 2025-26 difference within noise); at 3 months it is worse than wkexit alone in 2025-26.
+
+**Head-to-head with the analyst's v4 workbook (2026-10-21).** `Maize_Forecast_v4_White.xlsx` (Downloads) has no saved
+formula results; recalculated headless in LibreOffice, it reproduces the workbook's own stated errors (feature model 1
+month 6.7%, blend 3 / 6 months 15.9 / 20.3%). His recommended model (feature model at 1 month, import switch at 3 and 6)
+against production on shared (market, origin, horizon), scored on our FEWS NET observed actuals (his agree on 100% of
+pairs); MAPE, all years / 2025-26 targets: 1 month GRU 7.65 / 8.02, his 6.66 / 6.77 (naive 8.35 / 7.28); 3 months GRU
+15.26 / 19.07, his 15.59 / 16.08; 6 months GRU 19.88 / 29.16, his 19.14 / 27.95. Geometric mean of the two: 6.45 /
+6.55, 14.68 / 16.60, 18.17 / 26.29, better than production at every horizon (p < .001 at 1 month, .001 at 6 months all
+years; 3 months p .30 all years, < .001 in 2025-26). His 3- and 6-month edge in 2025-26 is the import switch (his
+feature model alone: 18.79 and 35.49). Outputs `outputs/d77_checks/v4_head_to_head/`. The FEWS NET API does serve weekly
+quotes: `marketpricefacts/?format=json&fields=simple&schedule=Weekly&dataseries=<id>` (Kano Dawanau white 15045 has
+weeks to 2026-08-26); `collection_schedule=Weekly` without a dataseries returns monthly rows only, which is what
+2026-10-21's weekly check assumed. Not verified: when each weekly quote is published.
+- Weekly signal rebuilt from the FEWS NET API (2026-10-21; `src/fetch_fewsnet_weekly.py`, every row source FEWS NET
+  "Nigeria, Price (weekly)", 8,889 quotes, identical to `data/panel_weekly.parquet` on its 8,278 overlapping weeks).
+  After Sep 2024 the signal exists for Dec 2024, Jan 2025 and Nov 2025 to Aug 2026 (9 live markets). Month-end weeks
+  entered the API a median 5 days after the week in 2026; 73% by the 15th of the next month in 2025-26. Two checks:
+  wkexit_v2 (all weeks): 1 month +17.4 / -2.1 (fails); split by origin, +8.6 points where the signal exists in
+  2025-26 (n 95) and -10.3 where it is missing (n 49): trained on almost-complete history, the model handles a missing
+  month badly. wkexit_v3pub (only weeks in the API by the 15th of o+1; pre-2024 timestamps include later edits, so it
+  drops many weeks that were public): 1 month +4.8 / +6.0 (p .003), passes; better where the signal exists (+6.6) and
+  where it does not (+5.7); 3 months -1.1 / +1.3, 6 months +1.0 / +1.5, neither significant. Outputs
+  `outputs/d77_checks/v3ideas/wkexit_v2`, `wkexit_v3pub`.
+- Three more checks (2026-10-21, 16:44). wkexit_v2_drop (wkexit_v2 with the extra block hidden on a random 30% of
+  training rows, `features.extra_flat_dropout`, `src/run.py`): 1 month +14.5 / +1.8 (all years MAPE 8.30 -> 7.32%),
+  3 months +3.3 / -3.6, 6 months +3.3 / +4.3; passes at 1 and 6 months. 2025-26 at 1 month: +9.1 where the signal
+  exists, -3.8 where it is missing (wkexit_v2: -10.3). importwin (the analyst's window, 0% duty and national price above
+  parity, ON Aug 2024 to Sep 2025 as in his workbook, added beside the always-on gap): 1 month -0.4 / -2.6, 3 months
+  +1.5 / -6.4, 6 months -0.9 / -9.0; fails. His gain comes from a 50/50 mix with a separate window-only model, not
+  tested yet. crossmkt (out of line with the usual 12-month gap to the national mean; own 1-month jump): 1 month
+  -1.6 / +3.5, 3 months 0.0 / +2.1, 6 months -1.4 / -0.2; fails.
+
+**Joint forecast with the analyst's Inflation Adjusted model set up as a candidate (2026-10-26).** His code
+(`refit_feature_model_v4.py`, `v2_models.py`, received 2026-10-26) is copied unchanged into `vendor/analyst_v4/`; run
+in isolation it reproduces his workbook's stored weights (max difference 4e-6) and forecasts (6e-8 relative) on every
+shared forecast, and his headline figures: white maize 6.7 / 15.6 / 19.8% at 1 / 3 / 6 months (feature model at 1,
+import switch at 3 and 6); his PDF's 6.6 / 15.2 / 18.8% score white and yellow together
+(`outputs/d77_checks/v4_refit_check/`). `src/analyst_forecast.py` runs it from a copy of his workbook
+(`data/external/analyst_v4/`) and exports his forecasts (identical to the isolated run to 6e-13);
+`src/joint_forecast.py` combines them with the GRU: our origin price x the geometric mean of the two predicted
+changes (the plain geometric mean wherever the origin prices agree, which is every live market for Aug 2026).
+Backtest on the shared production forecasts (`outputs/joint_forecast/backtest/`), MAPE GRU / analyst / joint, all
+years: 1 month 7.65 / 6.66 / 6.45, 3 months 15.26 / 15.59 / 14.68, 6 months 19.88 / 19.14 / 18.17; Oct 2024 to Aug
+2026: 8.16 / 6.78 / 6.64, 17.89 / 15.76 / 15.89, 27.18 / 26.98 / 24.90. Keep rule (points vs naive, joint minus
+GRU, 2019-24 / 2025-26): 1 month +13.4 / +22.8, 3 months -0.8 (p .43) / +12.7, 6 months +2.1 / +2.6; passes at 1 and 6
+months, misses at 3 by 0.8 points in 2019-24. Live joint forecasts from Aug 2026 for all 11 markets:
+`outputs/joint_forecast/predictions/2026-10-12.csv`. Not production. Monthly run: refresh his workbook's input tabs,
+`src/analyst_forecast.py`, then `src/joint_forecast.py live` on the GRU's predictions file.
+
+**GRU input attribution (2026-10-26).** `src/gru_attribution.py`: integrated gradients (32 steps, baseline = every
+scaled input at its training mean) on the 7 serving checkpoints, grouped into 8 input themes; pushes add up to each
+forecast within a median 0.06% (log). Typical push (median absolute), 1 / 3 / 6 months, over 1,641 forecasts Jan 2017 to
+Aug 2026 (`outputs/gru_attribution/typical_push.csv`): exchange rate 1.6 / 6.2 / 7.1%, gap to import cost 1.7 / 4.7 /
+7.8%, time of year 1.5 / 4.7 / 8.8%, upstream market 1.7 / 3.3 / 6.2%, recent prices 0.8 / 2.7 / 2.6%, year-earlier
+prices 1.1 / 2.6 / 5.9%, rainfall and NDVI 1.0 / 2.7 / 7.1%, diesel 0.2 / 0.6 / 0.6%. Describes today's serving model
+(trained to Jun 2026) applied to past months, not each past forecast's model. Saminaka, Aug 2026 to Nov: time of year
+-11.1%, exchange rate -9.6% (official naira strengthening), import gap +10.5%, upstream -0.7%; the analyst's model has
+the naira at +1.2% (street rate) and producing areas at +9.3%. Decks: Downloads
+`20261026_Augmentum_Deck_FEWSNET-GRU_HowGRUWorks_v1.pptx`, `20261026_Augmentum_Deck_FEWSNET-GRU_JointForecast_v1.pptx`.
+
+**Joint forecast production checks (2026-10-29), proposed as the FEWSNET flagship; approved as D-78 below.**
+The analyst's model now runs "as published": his headline inflation is lagged one month (NBS publishes month o's CPI
+around the 15th-16th of o+1), changing his 3- and 6-month forecasts by a median 0.07% (max 2.7%) and his accuracy not
+at all (`src/analyst_forecast.py`; `--as-in-workbook` reproduces his workbook). Checks, same boxes as D-77, shared
+forecasts Jan 2017 to Aug 2026 (`src/joint_production_checks.py`, `outputs/joint_forecast/production_checks/`):
+1. D-45 bar, all years: PASS at 1 / 3 / 6 months (DM p < .001 against naive at each; margin over seed SD 24.2 / 31.8 /
+   76.0; GRU-only on the same forecasts passes too). Oct 2024 to Aug 2026: passes at 3 and 6, not at 1 (DM p .09;
+   the GRU alone loses to naive there).
+2. Accuracy, MAPE joint / GRU / naive, all years: 6.45 / 7.65 / 8.35, 14.69 / 15.26 / 18.30, 18.18 / 19.88 / 23.83;
+   Oct 2024 to Aug 2026: 6.64 / 8.16 / 7.29, 16.04 / 17.89 / 22.51, 25.00 / 27.18 / 42.70. Joint vs GRU DM p < .001 at
+   1 and 6 months all years, .33 at 3. Keep rule (points, 2019-24 / 2025-26): +13.4 / +22.8, -0.7 / +11.6 (p .49),
+   +2.1 / +2.2.
+3. Direction right, all years, joint vs GRU: 72 / 64%, 74 / 72%, 72 / 73%; falls called 56 / 46%, 56 / 54%, 62 / 55%.
+   Median error 2024-26: +0.8 / +4.4 / +21.2% (GRU +1.6 / +6.3 / +23.5%).
+4. Look-ahead: his code passes a truncation test at 8 origins 2018-2026 (identical forecasts); input timing added to
+   docs/PUBLICATION_LAGS.md (weekly quotes: backtest assumes every week of month o was public by the 15th, 73% were
+   in 2025-26).
+5. Ranges, production method on the joint forecast (pool of past misses from 2015, GRU alone before Jan 2017), 80% /
+   90% coverage all years: 84 / 93% (1 month), 82 / 90% (3), 83 / 90% (6), slightly narrower than the GRU's. Oct 2024 to
+   Aug 2026: 82 / 90%, 76 / 84%, 54 / 72% (GRU 82 / 88%, 72 / 84%, 64 / 80%); every 6-month miss there is below the
+   range (forecast too high in the 2025 fall). Live forecasts now carry 80% and 90% ranges.
+Known limits: one manual step (refreshing the analyst's workbook inputs monthly); his street-rate series after Jan 2025
+comes from press quotes; 6-month ranges under-cover in a falling market (both models); fallback to the GRU alone where
+he has no forecast.
+
+## D-78. Owner decision: the joint forecast (GRU + Inflation Adjusted) is the FEWSNET production model
+
+**Decision (owner, 2026-10-29).** Production moves from the GRU alone (D-77) to the joint forecast: our origin price x
+the geometric mean of the two models' predicted changes, where the GRU is the D-77 model unchanged
+(`configs/build3_monthly_fxdaily_gapfilled_pit_parity.yaml`, serving `outputs/production_monthly_parity_serving/`) and
+Inflation Adjusted is the analyst's v4 model, his code unchanged in `vendor/analyst_v4/`, run "as published" (headline
+inflation lagged one month) by `src/analyst_forecast.py` from his workbook's input tabs: feature model at 1 month,
+import switch at 3 and 6. Combination, fallbacks and 80% / 90% ranges in `src/joint_forecast.py`. Basis: the production
+checks above (D-45 PASS at every horizon; better than the GRU alone at every horizon, all years and 2024-26; the first
+version to beat naive at 1 month in Oct 2024 to Aug 2026; truncation test passed; inputs public by the forecast date).
+Accepted with the known limits recorded there: the 3-month two-period test misses by 0.7 points in 2019-24 (not
+significant); 6-month ranges under-cover in a falling market; the analyst's workbook must be refreshed every month (one
+manual step); the backtest assumes all of month o's weekly quotes were public by the 15th. Fallback: where the analyst's
+model has no forecast for a market, the GRU alone is published and flagged. The GRU alone (D-77) becomes the reference
+and stays in the monthly run as the joint forecast's first component. First joint forecast: from August 2026 prices,
+`outputs/joint_forecast/predictions/2026-10-12.csv` (11 markets, with ranges).
+

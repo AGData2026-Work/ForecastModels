@@ -24,11 +24,18 @@ pairs are left in place (nothing was deleted, D-16's own precedent), since dropp
 them would also be a real, code-level change and that is not what was asked for --
 they are simply no longer what this workstream reports against or is judged by.
 
-## Production models (owner decisions 2026-09-28 and 2026-10-05)
+## Production models (owner decisions 2026-09-28, 2026-10-05 and 2026-10-29)
 
-One model per workstream, GRU, plus a point-in-time soft blend; everything
-else is decommissioned (`docs/DECOMMISSIONED_20260928.md`).
-- FEWSNET (main, D-77, 2026-10-12, replacing D-68's weekly config): monthly GRU on
+One production forecast per workstream; everything else is decommissioned (`docs/DECOMMISSIONED_20260928.md`).
+- FEWSNET (main, D-78, 2026-10-29): the JOINT FORECAST. Our origin price x the geometric mean of two predicted
+  changes: (1) the D-77 GRU below, unchanged, and (2) the analyst's Inflation Adjusted model, his code unchanged in
+  `vendor/analyst_v4/`, run as published (headline inflation lagged one month) by `src/analyst_forecast.py` from a
+  copy of his workbook in `data/external/analyst_v4/` (feature model at 1 month, import switch at 3 and 6).
+  `src/joint_forecast.py live` combines them and adds 80% / 90% ranges; GRU alone where he has no forecast. Monthly
+  routine in `RUNBOOK.md` ("Monthly joint forecast"); checks in `outputs/joint_forecast/production_checks/`
+  (`src/joint_production_checks.py`, `src/analyst_truncation_test.py`). Do not edit `vendor/analyst_v4/`; changes
+  to his model come from him.
+- FEWSNET GRU component (D-77, 2026-10-12, replacing D-68's weekly config; production on its own until D-78): monthly GRU on
   `configs/build3_monthly_fxdaily_gapfilled_pit_parity.yaml`: gap-filled FEWS NET panel v3
   (`src/build_gapfilled_panel.py` -> `src/build_monthly_gapfilled.py --published`), forecast on the 15th
   of the month after the latest price month, daily CBN FX scores, drivers one month back, upstream market price for the same month (no lag), import-parity
