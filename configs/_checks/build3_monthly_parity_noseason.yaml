@@ -1,0 +1,106 @@
+# STATUS: CHECK (2026-10-19, idea 4). Production parity config with the learned seasonal inputs muted: noseason; the only change.
+# import-parity gap, no blend. See docs/MODEL_STATUS.md.
+# UPSTREAM: each market's upstream market price for the SAME month, no lag (both FEWS NET values are released
+# together); a 1-month lag was worse at every horizon (docs/DECISIONS.md D-77 follow-up, 2026-10-14).
+# PARITY GAP: the as-published monthly production config plus one flat feature, log(market price / import
+# parity) at the origin (src/data.py attach_parity; parity = (FOB + freight) x naira rate / 1000 x (1 + duty)
+# from the NADIH volatility workbook). The only change.
+# AS PUBLISHED: configs/build3_monthly_fxdaily_gapfilled.yaml with publication lags. The forecast for
+# month o is made on the 15th of o+1 (FEWS NET's API release of month o); FX read on the 14th; diesel,
+# rainfall, NDVI through month o-1 (src/build_monthly_gapfilled.py --published). The only change.
+# D-75: configs/build3_monthly_fxdaily_fxonly.yaml (D-66, the best monthly variant) on the gap-filled
+# FEWS NET monthly panel (src/build_monthly_gapfilled.py): prices filled from AFEX, NAERLS old crop,
+# the Kaduna/Kano other source and 2-month interpolation; targets FEWS NET observed only; load_panel's
+# own interpolation off. Data change only; model and training settings identical to D-66.
+# ---------------------------------------------------------------------------
+# BUILD 3 -- remove the safeguards aimed at the wrong problem
+#
+# Copied from build2.yaml. Six changes only, all justified by the same
+# premise (see docs/DECISIONS.md D-23): the Week 0 diagnostics indicate
+# under-learning, not overfitting, so build 2's four overfitting safeguards
+# are removed and capacity is raised. Nothing else differs from build2.yaml.
+#
+# lookback=26 (D-49, was 52). Owner decision, 2026-09-23: a seed-paired
+# bracket found GRU significantly better at h=26 (t=2.88) with no
+# significant effect at h=4/h=13; RNN showed no significant effect at any
+# horizon, but every one of its point estimates also favoured 26 over 52,
+# never against. Applied to both architectures, not GRU alone, to preserve
+# the "same everything but the recurrent cell" parity this project's design
+# depends on (D-38) -- confirmed safe for RNN, not just untested for it.
+# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# BUILD 3 MONTHLY (monthly-cadence experiment, docs/MONTHLY_PROTOCOL.md)
+#
+# configs/build3.yaml translated from weeks to months and nothing else, per the
+# owner's instruction that cadence be the only difference. With
+# data.frequency: MS every *_weeks setting below counts MONTHS (steps of the
+# panel), and horizons are 1 / 3 / 6 months. FX is not used (same as build3).
+# ---------------------------------------------------------------------------
+# FX RESTRUCTURED (option 2): configs/build3_monthly.yaml plus six bounded national flat features
+# (src/data.py attach_fx_summary): percentile ranks of the naira's 3/6/12-month
+# depreciation, of headline inflation and of its 6-month change, and months since the
+# last >=10% devaluation. No FX sequence channel. The only change from configs/build3_monthly.yaml.
+# FX FROM THE DAILY CBN RATE: configs/build3_monthly_fxsummary_fxonly.yaml with the four FX summary features computed
+# from CBN's daily official rate (src/data.py _fx_daily_features) read at the forecast date
+# (weekly: the day before the origin; monthly: the last day of month o) instead of a
+# month-lagged monthly average from fx_rate.xlsx. The only change from that config.
+build:
+  name: build3_monthly_parity_noseason
+  note: >
+    Build 2 with the regularisation added against overfitting removed, since the
+    Week 0 diagnostics indicate under-learning was the binding constraint. Retains
+    the lag-52 anchors, per-horizon target scaling, seed count and refit cadence.
+    Raises capacity.
+
+data:
+  panel: data/panel_monthly_gapfilled_pit.parquet          # src/build_monthly_panel.py
+  baseline_forecasts: data/monthly_grid_gapfilled_pit.parquet
+  frequency: MS                              # month-start steps
+  train_markets: all_in_panel
+  drop_target_dates: []           # the weekly outage-week drop has no monthly analogue
+  fx_rate_path: data/external/fx_rate.xlsx
+  fx_daily_path: data/external/20261002_CBN_API_Nigeria_USDNGN_Daily_2001-12_2026-09_v1.csv
+  inflation_path: data/external/inflation.xlsx
+  fx_lag_months: 0
+  fx_monthly_cutoff_day: 14       # FX read on the 14th of the month after the origin month
+  inflation_lag_months: 1
+  price_interp_limit_weeks: 0     # the panel is already gap-filled (2-month rule); no further fills
+
+protocol:
+  horizons: [1, 3, 6]             # months (4 / 13 / 26 weeks)
+  gate_horizons: [1, 3]
+  gate_threshold_pct: 5.0
+
+features:
+  climate_scheme: inverse_distance
+  fourier_k: 0
+  explicit_lag52: false
+  fx_summary: true
+  parity_path: data/external/20261012_NADIH_ImportParity_Maize_Monthly_2006-01_2026-09_v1.csv
+  fx_summary_subset: ['fx_dep3_rank', 'fx_dep6_rank', 'fx_dep12_rank', 'months_since_deval']   # ablation
+
+model:
+  lookback: 6                      # months (26 weeks)
+  hidden: 128                      # was 64
+  market_embedding_dim: 8
+  head_dropout: 0.0                # was 0.2
+  input_dropout: 0.0               # was 0.1
+
+training:
+  seeds: [0, 1, 2, 3, 4, 5, 6]
+  epochs: 200
+  batch_size: 256
+  lr: 0.003
+  patience: 25
+  grad_clip: 1.0
+  weight_decay: 0.0                # was 0.0001
+  lr_schedule: cosine
+  huber_delta: 1.0
+  val_fraction: 0.15
+  purge_weeks: 6                   # months (26 weeks); falls back 3 -> 0
+  recency_half_life_weeks: null    # was 156
+  scale_targets: true
+  retrain_every_weeks: 3          # months (13 weeks)
+  min_train_windows: 46            # 200 x 12/52: the weekly floor never binds in the flagship (first cut
+                                   # has 310); a literal 200 here would skip the first two monthly cuts
+  seed_aggregation: median

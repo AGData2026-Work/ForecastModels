@@ -66,6 +66,53 @@ class TestGapFilledPanel:
         assert Q.loc[("Biu", "2020-05"), "flag"] == "missing"
 
 
+def test_price_data_2026_drops_entry_errors(tmp_path):
+    rows = [("2026-09-05", "Yobe", " potiskum", "White Maize", 40000, 100, 400.0, "high"),
+            ("2026-09-12", "Yobe", "Potiskum", "White Maize", 41000, 100, 410.0, "high"),
+            ("2026-01-16", "Kaduna", "Pambegua", "White Maize", 22500, 235, 95.7, "high"),    # 235 kg bag
+            ("2026-02-20", "Borno", "Lashe Money", "White Maize", 22000, 100, 650.0, "high")]  # 650 vs 220 a kg
+    cols = ["Date", "State", "Market", "Commodity", "Price per Bag", "Weight of Bag (kg)", "price per kg", "Availability"]
+    pd.DataFrame(rows, columns=cols).to_excel(tmp_path / "p.xlsx", index=False)
+    s = B.load_price_data_2026(tmp_path / "p.xlsx")
+    assert s.loc["2026-09", "Potiskum"] == pytest.approx(405.0)    # names tidied, monthly mean
+    assert "Pambegua" not in s.columns and "Lashe Money" not in s.columns
+
+
+def test_afex_chat_old_crop_only_where_new_crop_was_reported(tmp_path):
+    import afex_chat
+    chat = ("[2/9/26, 7:39:24 AM] ~ Reporter: Dandume Market,\nDandume Local Government Katsina State.\n\n"
+            "*White maize hybrid Old\n#33,000 -34,000\nAverage weight 105kg\n\n"
+            "*White maize New\n#23,000 -24,000\nAverage weight 108kg\n\n"
+            "*Sorghum Yellow\n#39,000 -41,000\nAverage weight 98kg\n"
+            "[5/8/26, 7:39:24 AM] ~ Reporter: Dandume Market,\nDandume Local Government.\n\n"
+            "*White Maize Hybrid\n103kg Average weight\n#31,00p -33,000\n")
+    (tmp_path / "_chat.txt").write_text(chat, encoding="utf-8")
+    q = afex_chat.maize_quotes(tmp_path / "_chat.txt")
+    assert sorted(q.tag) == ["new", "old", "untagged"]
+    assert q.loc[q.tag == "untagged", "price_NGN_per_kg"].iloc[0] == pytest.approx(33000 / 103)   # typo end ignored
+    ov = afex_chat.old_crop_overrides(tmp_path / "_chat.txt")
+    assert ov.loc["2026-09", "Dandume"] == pytest.approx(33500 / 105)       # new crop left out
+    assert "2026-08" not in ov.index                                         # no new crop that month
+
+
+def test_load_grid_origin_price_when_first_horizon_has_no_row(tmp_path):
+    # origin 2025-09: no 1-month row (its target month is missing) but a 3-month actual exists
+    from data import load_grid
+    rows = [dict(market="Kano, Dawanau", horizon=3, origin=pd.Timestamp("2025-09-01"), target=pd.Timestamp("2025-12-01"),
+                 actual=356.0, naive=350.0, panel_fe=np.nan),
+            dict(market="Kano, Dawanau", horizon=1, origin=pd.Timestamp("2025-11-01"), target=pd.Timestamp("2025-12-01"),
+                 actual=356.0, naive=342.0, panel_fe=np.nan),
+            dict(market="Kano, Dawanau", horizon=3, origin=pd.Timestamp("2025-11-01"), target=pd.Timestamp("2026-02-01"),
+                 actual=390.0, naive=342.0, panel_fe=np.nan),
+            dict(market="Kano, Dawanau", horizon=6, origin=pd.Timestamp("2025-11-01"), target=pd.Timestamp("2026-05-01"),
+                 actual=413.3, naive=342.0, panel_fe=np.nan)]
+    pd.DataFrame(rows).to_parquet(tmp_path / "g.parquet")
+    g, _ = load_grid(tmp_path / "g.parquet", [1, 3, 6], require_horizons=[3])
+    g = g.set_index("origin")
+    assert g.loc[pd.Timestamp("2025-09-01"), "origin_price"] == 350.0
+    assert g.loc[pd.Timestamp("2025-11-01"), "origin_price"] == 342.0
+
+
 def _weekly():
     dates = pd.date_range("2012-05-02", "2026-09-30", freq="7D")
     rows = []

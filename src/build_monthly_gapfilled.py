@@ -41,14 +41,14 @@ DRIVERS = ["diesel", "rainfall_simple_average", "rainfall_inverse_distance", "nd
 
 def build_panel(L: pd.DataFrame, w: pd.DataFrame, published: bool, observed_only: bool = False,
                 driver_lag: int | None = None, diesel: pd.DataFrame | None = None, upstream_lag: int = 0,
-                no_upstream: bool = False):
+                no_upstream: bool = False, last_month: str = "2026-08"):
     """Monthly model panel from the gap-filled long panel `L` and the weekly driver panel `w`.
     Returns (panel, log, price, flag, fill_kind, markets)."""
     log: dict = {"published": published, "observed_only": observed_only, "upstream_lag_months": upstream_lag,
                  "no_upstream": no_upstream}
     L = L.copy()
     L["month"] = pd.PeriodIndex(L["month"], freq="M")
-    months = pd.period_range("2012-05", "2026-08", freq="M")
+    months = pd.period_range("2012-05", last_month, freq="M")
     L = L[L["month"].isin(months)]
     if observed_only:  # D-75 sensitivity: FEWS NET observed values only, every fill removed
         L.loc[L["flag"] != "observed", ["price_NGN_per_kg"]] = np.nan
@@ -166,6 +166,8 @@ def main() -> None:
     ap.add_argument("--upstream-lag", type=int, default=0, help="months the upstream market's price lags (default 0)")
     ap.add_argument("--no-upstream", action="store_true",
                     help="check only: blank every upstream price, so the upstream channel and its mask are zero")
+    ap.add_argument("--last-month", default="2026-08",
+                    help="last panel month (default 2026-08, production); later months need a gap-filled panel that has them")
     ap.add_argument("--fewsnet-diesel", default=None,
                     help="FEWS NET API export (.xlsx, sheet diesel_retail_litre): use it as the only diesel source")
     a = ap.parse_args()
@@ -174,7 +176,7 @@ def main() -> None:
         pd.read_excel(a.filled, "Long_panel"), pd.read_parquet("data/panel_weekly_oos2026_fewsdiesel.parquet"),
         a.published, a.observed_only, a.driver_lag,
         pd.read_excel(a.fewsnet_diesel, "diesel_retail_litre").set_index("month") if a.fewsnet_diesel else None,
-        a.upstream_lag, a.no_upstream)
+        a.upstream_lag, a.no_upstream, a.last_month)
     log["source"] = a.filled
     P.to_parquet(f"data/panel_monthly_gapfilled{sfx}.parquet", index=False)
     G, drops = build_grid(price, flag, fill_kind, markets, a.horizons)
