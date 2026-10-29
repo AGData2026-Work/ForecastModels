@@ -39,7 +39,7 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from data import (Scaler, attach_fx_summary, attach_inflation_drift, attach_macro, attach_parity, build_flat, build_sequence,
+from data import (Scaler, attach_checks, attach_fx_summary, attach_inflation_drift, attach_macro, attach_nowcast, attach_parity, build_flat, build_sequence,
                   inflation_offsets, load_panel,
                   make_exog_point_in_time)
 from model import RecurrentForecaster, load_checkpoint, predict as net_predict
@@ -117,9 +117,13 @@ def main() -> None:
                           fx_daily_path=cfg["data"].get("fx_daily_path"),
                           origin_is_month_end=(freq == "MS"),
                           monthly_cutoff_day=cfg["data"].get("fx_monthly_cutoff_day"),
-                          monthly_cutoff_months=cfg["data"].get("fx_monthly_cutoff_months", 1))
+                          monthly_cutoff_months=cfg["data"].get("fx_monthly_cutoff_months", 1),
+                          fx_column=cfg["data"].get("fx_rate_column", "Official Exchange Rate"))
     if cfg["features"].get("parity_path"):
         attach_parity(panel, cfg["features"]["parity_path"])
+    if cfg["features"].get("nowcast_path"):
+        attach_nowcast(panel, cfg["features"]["nowcast_path"])
+    attach_checks(panel, cfg["features"])
     if cfg["training"].get("real_target", False):
         attach_inflation_drift(panel, cfg["data"]["inflation_path"],
                                lag_months=cfg["data"].get("inflation_lag_months", 2))

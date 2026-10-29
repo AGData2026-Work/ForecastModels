@@ -90,6 +90,17 @@ class Panel:
     # D-75 import parity: landed price of imported maize, NGN/kg, one value per date (national). When set,
     # build_flat appends log(market price at the origin / parity at the origin) as the last flat feature.
     parity: np.ndarray | None = None            # (T,)
+    # Early-month signal (idea 1, 2026-10-19, src/build_nowcast.py): log change of the market's own weekly source
+    # price from month o to the 1st-14th of o+1, public before the forecast date. When set, build_flat appends
+    # [nowcast, mask] after the parity gap; 0 with mask 0 where no source covers the market-month.
+    nowcast: np.ndarray | None = None           # (T, M)
+    nowcast_mask: np.ndarray | None = None      # (T, M)
+    # Duty-gated parity (check, 2026-10-21): 1 where import duty is 0 in the origin month. When set, build_flat
+    # appends [gap x duty_free, duty_free] in place of the plain gap, so the gap only counts while imports are duty-free.
+    parity_duty_free: np.ndarray | None = None  # (T,)
+    # Extra per-market flat features (checks, 2026-10-21, src/build_extra_signals.py), appended after the nowcast pair.
+    extra_flat: np.ndarray | None = None        # (T, M, K)
+    extra_flat_names: list | None = None
     # Real-price target (D-73): annual log food-inflation rate known at each date, (T,). When set,
     # training targets are price changes net of expected inflation, rate * h / 52, and forecasts
     # add it back. None (default) = nominal targets, as before.
@@ -308,6 +319,50 @@ def attach_parity(p: Panel, parity_path: str | Path) -> None:
                        "first": str(s.index.min()), "last": str(s.index.max())}
 
 
+def attach_nowcast(p: Panel, path: str | Path) -> None:
+    """Idea 1: early-month signal per market and origin month (columns market, origin_month 'YYYY-MM', nowcast)."""
+    q = pd.read_csv(path)
+    s = q.set_index(["market", "origin_month"])["nowcast"]
+    months = p.dates.to_period("M").astype(str)
+    v = np.zeros((len(p.dates), len(p.markets))); m = np.zeros_like(v)
+    for j, mk in enumerate(p.markets):
+        for i, mo in enumerate(months):
+            x = s.get((mk, mo))
+            if x is not None and np.isfinite(x):
+                v[i, j], m[i, j] = float(x), 1.0
+    p.nowcast, p.nowcast_mask = v, m
+    p.log["nowcast"] = {"path": str(path), "market_months_with_value": int(m.sum())}
+
+
+def attach_checks(p: Panel, feats: dict) -> None:
+    """Check switches (2026-10-21), all off by default. Call after attach_parity / attach_nowcast.
+    drop_diesel: diesel held constant, so its sequence channel and flat returns are 0 everywhere (no information).
+    parity_gate 'duty_free': the parity gap counts only in months with 0% import duty (needs the parity CSV's duty column).
+    extra_flat_path (one CSV or a list) + extra_flat_columns: per market and origin month (columns market, origin_month 'YYYY-MM', ...);
+    missing cells are 0, counted in the log, so each file should carry its own mask column."""
+    if feats.get("drop_diesel"):
+        p.diesel = np.ones_like(p.diesel)
+        p.log["drop_diesel"] = True
+    if feats.get("parity_gate"):
+        if feats["parity_gate"] != "duty_free" or p.parity is None:
+            raise ValueError("parity_gate supports only 'duty_free' and needs features.parity_path")
+        s = pd.read_csv(feats["parity_path"]).set_index("month")["duty"]
+        months = p.dates.to_period("M").astype(str)
+        p.parity_duty_free = np.array([float(s.get(m, np.nan) == 0) for m in months])
+        p.log["parity_gate"] = {"duty_free_months": int(p.parity_duty_free.sum()),
+                                "first_duty_free": next((m for m, f in zip(months, p.parity_duty_free) if f), None)}
+    if feats.get("extra_flat_path"):
+        cols = list(feats["extra_flat_columns"])
+        paths = feats["extra_flat_path"] if isinstance(feats["extra_flat_path"], list) else [feats["extra_flat_path"]]
+        q = pd.concat([pd.read_csv(f).set_index(["market", "origin_month"]) for f in paths], axis=1)[cols]
+        months = p.dates.to_period("M").astype(str)
+        idx = pd.MultiIndex.from_product([p.markets, months])
+        v = q.reindex(idx).to_numpy(float).reshape(len(p.markets), len(months), len(cols)).transpose(1, 0, 2)
+        p.log["extra_flat"] = {"path": str(feats["extra_flat_path"]), "columns": cols,
+                               "cells_missing_set_to_0": int(np.isnan(v).sum())}
+        p.extra_flat, p.extra_flat_names = np.nan_to_num(v, nan=0.0), cols
+
+
 def attach_inflation_drift(p: Panel, inflation_path: str | Path, lag_months: int = 2,
                            column: str = "Food Inflation (%)-YoY") -> None:
     """D-73. Expected inflation at each date: the food-inflation YoY rate of month(date) - lag
@@ -405,7 +460,7 @@ def attach_fx_summary(p: Panel, fx_path: str | Path, inflation_path: str | Path,
                       fx_lag_months: int = 1, inflation_lag_months: int = 2,
                       keep: list[str] | None = None, fx_daily_path: str | Path | None = None,
                       origin_is_month_end: bool = False, monthly_cutoff_day: int | None = None,
-                      monthly_cutoff_months: int = 1) -> None:
+                      monthly_cutoff_months: int = 1, fx_column: str = "Official Exchange Rate") -> None:
     """FX restructuring option 2. Six bounded flat features at each date, computed on
     the monthly national series and then looked up for the latest month that would have
     been published by that date (lags as attach_macro):
@@ -419,7 +474,7 @@ def attach_fx_summary(p: Panel, fx_path: str | Path, inflation_path: str | Path,
     extrapolated extreme."""
     fx = pd.read_excel(fx_path).rename(columns={"Months": "date"})
     fx["date"] = pd.to_datetime(fx["date"])
-    f = fx.set_index("date")["Official Exchange Rate"].sort_index()
+    f = fx.set_index("date")[fx_column].sort_index()          # data.fx_rate_column (2026-10-26 street-rate check)
     f.index = f.index.to_period("M")
     lf = np.log(f)
     feats = pd.DataFrame(index=f.index)
@@ -534,8 +589,11 @@ def load_grid(
     incomplete = piv[~complete].copy()
     piv = piv[complete].reset_index(drop=True)
 
-    # naive is identical across horizons for a given origin: that is the origin price
-    piv["origin_price"] = piv[f"naive_h{horizons[0]}"]
+    # naive is identical across horizons for a given origin: that is the origin price. Take it from
+    # whichever horizon has a row (2026-10-19 fix): reading only the first horizon left origin_price NaN
+    # whenever that horizon's target month was missing, which dropped valid longer-horizon pairs as
+    # "bad_actual_or_origin_price" (39 at 3 months and 26 at 6 in the monthly production grid).
+    piv["origin_price"] = piv[[f"naive_h{h}" for h in horizons]].bfill(axis=1).iloc[:, 0]
 
     log = {
         "grid_path": str(path),
@@ -764,7 +822,17 @@ def build_flat(
     if p.parity is not None:
         if not np.isfinite(p.parity[i]) or p.parity[i] <= 0:
             return np.empty(0), False
-        vals.append(float(np.log(p0) - np.log(p.parity[i])))
+        gap = float(np.log(p0) - np.log(p.parity[i]))
+        if p.parity_duty_free is None:
+            vals.append(gap)
+        else:
+            vals += [gap * p.parity_duty_free[i], float(p.parity_duty_free[i])]
+
+    if p.nowcast is not None:
+        vals += [float(p.nowcast[i, j]), float(p.nowcast_mask[i, j])]
+
+    if p.extra_flat is not None:
+        vals.extend(float(v) for v in p.extra_flat[i, j])
 
     arr = np.asarray(vals, dtype=float)
     if arr.size and not np.isfinite(arr).all():

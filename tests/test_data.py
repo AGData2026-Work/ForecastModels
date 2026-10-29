@@ -185,3 +185,26 @@ class TestValidatePanel:
         p.price[5, 0] = 0.0
         with pytest.raises(ValueError, match="<= 0"):
             validate_panel(p)
+
+
+def test_attach_checks_duty_gate_extra_flat_and_no_diesel(tiny_panel, tmp_path):
+    # 2026-10-21 checks: gap counts only in 0%-duty months; extra per-market columns appended; diesel carries nothing
+    import pandas as pd
+    from data import attach_checks, attach_parity, build_flat
+    p = tiny_panel
+    months = p.dates.to_period("M").astype(str).unique()
+    duty = [0.0 if m >= months[10] else 0.05 for m in months]
+    pd.DataFrame({"month": months, "parity_ngn_per_kg": 50.0, "duty": duty}).to_csv(tmp_path / "par.csv", index=False)
+    pd.DataFrame({"market": "MarketA", "origin_month": months[12], "x1": 0.3, "x_mask": 1.0},
+                 index=[0]).to_csv(tmp_path / "x.csv", index=False)
+    attach_parity(p, tmp_path / "par.csv")
+    attach_checks(p, {"parity_path": tmp_path / "par.csv", "parity_gate": "duty_free", "drop_diesel": True,
+                      "extra_flat_path": tmp_path / "x.csv", "extra_flat_columns": ["x1", "x_mask"]})
+    i_dut = int(np.argmax(p.dates.to_period("M").astype(str) == months[2]))
+    i_free = int(np.argmax(p.dates.to_period("M").astype(str) == months[12]))
+    F_dut, _ = build_flat(p, i=i_dut, j=0, horizons=[4], use_lag52=False, use_realised_drivers=False)
+    F_free, _ = build_flat(p, i=i_free, j=0, horizons=[4], use_lag52=False, use_realised_drivers=False)
+    assert list(F_dut[-4:]) == [0.0, 0.0, 0.0, 0.0]                           # duty applies: gap off; no extra value
+    assert F_free[-4] == pytest.approx(np.log(p.price[i_free, 0] / 50.0))     # duty-free: the plain gap
+    assert list(F_free[-3:]) == [1.0, 0.3, 1.0]
+    assert (p.diesel == 1.0).all() and p.log["extra_flat"]["cells_missing_set_to_0"] > 0
