@@ -376,11 +376,20 @@ Run once FEWS NET has published last month's prices, for the forecast dated the 
 1. **GRU.** Refresh the monthly panel as for D-77 (`src/build_gapfilled_panel.py`, `src/build_monthly_gapfilled.py
    --published`), then `python src/predict.py --run-dir outputs/production_monthly_parity_serving`. Writes
    `outputs/production_monthly_parity_serving/predictions/<today>.csv`.
-2. **Inflation Adjusted.** Update the input tabs of the analyst's workbook (his `Data_Pipeline` tab lists them:
-   `In_Price`, `In_Price_Observed`, `In_Price_Source`, `In_Price_Yellow`, `In_Macro`, `In_Weekly_Prices`,
-   `In_Sorghum`), save a dated copy as `data/external/analyst_v4/<YYYYMMDD>_Analyst_Maize_Forecast_v4_White.xlsx`, then
-   `python src/analyst_forecast.py --workbook <that copy> --out outputs/joint_forecast/analyst_forecasts.csv`
-   (about 20 seconds; re-learns his weights from past data only; never writes to the workbook).
+2. **Inflation Adjusted.** No Excel workbook is involved (since 2026-10-30, D-79). His inputs are the CSV files in
+   `data/analyst_inputs/` (`src/analyst_inputs.py` describes each). For the new month `<YYYY-MM>`:
+   a. pull the sources: `python src/fetch_fewsnet_weekly.py --out data/external/<YYYYMMDD>_FEWSNET_API_Nigeria_WeeklyMaizeWhite_v1.csv`,
+      the same with `--product yellow` (`..._WeeklyMaizeYellow_v1.csv`), the FEWS NET monthly pull (white is not taken
+      from it; yellow and sorghum are), the data team's consolidated price file, `src/fetch_cbn_fx.py` and the import
+      parity CSV (`src/build_import_parity.py`);
+   b. add one row to `data/analyst_inputs/manual_monthly.csv`: headline_mom, food_mom, cpi (NBS CPI report) and
+      fx_parallel (monthly mean of street BDC quotes); add any Kasuwa quotes to `kasuwa_weekly.csv`;
+   c. `python src/analyst_inputs_update.py --months <YYYY-MM> --consolidated <file> --weekly-white <file>
+      --weekly-yellow <file> --fewsnet-monthly <file> --cbn <file> --parity <file>` (add `--check` first to see the
+      rows without writing; also rewrite the previous month if FEWS NET revised it);
+   d. `python src/analyst_forecast.py --inputs data/analyst_inputs --out outputs/joint_forecast/analyst_forecasts.csv`
+      (about 20 seconds; re-learns his weights from past data only). `--workbook <xlsx>` still reads his workbook
+      instead, for comparison with what he sends.
 3. **Combine.** `python src/joint_forecast.py live --analyst outputs/joint_forecast/analyst_forecasts.csv --gru
    outputs/production_monthly_parity_serving/predictions/<today>.csv --out
    outputs/joint_forecast/predictions/<today>.csv`. Check the `note` column: a market without an analyst forecast is

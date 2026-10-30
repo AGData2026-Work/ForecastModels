@@ -1,8 +1,11 @@
 """
 Export the analyst's Inflation Adjusted model forecasts (his v4 workbook model) for the joint forecast (2026-10-26).
 
-    python src/analyst_forecast.py --workbook <Maize_Forecast_v4_White.xlsx> \
-        --out outputs/joint_forecast/analyst_forecasts.csv
+    python src/analyst_forecast.py --inputs data/analyst_inputs --out outputs/joint_forecast/analyst_forecasts.csv
+    python src/analyst_forecast.py --workbook <Maize_Forecast_v4_White.xlsx> ...   # legacy: read his workbook instead
+
+Since 2026-10-30 his inputs are plain CSV files (data/analyst_inputs/, src/analyst_inputs.py; updated monthly by
+src/analyst_inputs_update.py), so no Excel workbook is needed; forecasts from the CSVs equal the workbook's exactly.
 
 Runs his own code, unchanged, from vendor/analyst_v4/ (refit_feature_model_v4.py and v2_models.py, received 2026-10-26):
 the input-reading part of refit_feature_model_v4.py and all of v2_models.py, which re-learns his weights for every
@@ -20,9 +23,13 @@ from __future__ import annotations
 
 import argparse
 import os
+import sys
 from pathlib import Path
 
 import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).parent))
+from analyst_inputs import load_inputs, run_model  # noqa: E402
 
 VENDOR = Path(__file__).resolve().parents[1] / "vendor" / "analyst_v4"
 RECOMMENDED = {1: "fm", 3: "rs", 6: "rs"}
@@ -69,11 +76,17 @@ def export(pn: pd.DataFrame) -> pd.DataFrame:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--workbook", required=True)
+    src = ap.add_mutually_exclusive_group()
+    src.add_argument("--inputs", default=None, help="folder of his CSV inputs (default data/analyst_inputs)")
+    src.add_argument("--workbook", default=None, help="legacy: read his Excel workbook instead of the CSV inputs")
     ap.add_argument("--out", default="outputs/joint_forecast/analyst_forecasts.csv")
     ap.add_argument("--as-in-workbook", action="store_true", help="reproduce his workbook exactly (inflation not lagged)")
     a = ap.parse_args()
-    out = export(run_his_model(os.path.abspath(a.workbook), as_published=not a.as_in_workbook)["pn"])
+    if a.workbook:
+        g = run_his_model(os.path.abspath(a.workbook), as_published=not a.as_in_workbook)
+    else:
+        g = run_model(load_inputs(a.inputs or "data/analyst_inputs"), as_published=not a.as_in_workbook)
+    out = export(g["pn"])
     Path(a.out).parent.mkdir(parents=True, exist_ok=True)
     out.to_csv(a.out, index=False)
     last = out.origin.max()

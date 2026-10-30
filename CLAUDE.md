@@ -29,8 +29,10 @@ they are simply no longer what this workstream reports against or is judged by.
 One production forecast per workstream; everything else is decommissioned (`docs/DECOMMISSIONED_20260928.md`).
 - FEWSNET (main, D-78, 2026-10-29): the JOINT FORECAST. Our origin price x the geometric mean of two predicted
   changes: (1) the D-77 GRU below, unchanged, and (2) the analyst's Inflation Adjusted model, his code unchanged in
-  `vendor/analyst_v4/`, run as published (headline inflation lagged one month) by `src/analyst_forecast.py` from a
-  copy of his workbook in `data/external/analyst_v4/` (feature model at 1 month, import switch at 3 and 6).
+  `vendor/analyst_v4/`, run as published (headline inflation lagged one month) by `src/analyst_forecast.py --inputs
+  data/analyst_inputs` (feature model at 1 month, import switch at 3 and 6). Since D-79 (2026-10-30) his inputs are
+  plain CSVs (`src/analyst_inputs.py`), updated monthly from the sources by `src/analyst_inputs_update.py`; no
+  workbook in the loop (`--workbook` remains for comparing with what he sends).
   `src/joint_forecast.py live` combines them and adds 80% / 90% ranges; GRU alone where he has no forecast. Monthly
   routine in `RUNBOOK.md` ("Monthly joint forecast"); checks in `outputs/joint_forecast/production_checks/`
   (`src/joint_production_checks.py`, `src/analyst_truncation_test.py`). Do not edit `vendor/analyst_v4/`; changes

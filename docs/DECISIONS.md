@@ -3926,3 +3926,56 @@ model has no forecast for a market, the GRU alone is published and flagged. The 
 and stays in the monthly run as the joint forecast's first component. First joint forecast: from August 2026 prices,
 `outputs/joint_forecast/predictions/2026-10-12.csv` (11 markets, with ranges).
 
+
+**The analyst's remaining ideas inside the GRU (2026-10-29).** Each check is production GRU plus one change, same
+pairs, `outputs/d77_checks/v4ideas/` (`summary.csv`, scorer `score_v4ideas.py`, configs `configs/_checks/`, signals
+from `src/build_analyst_signals.py`, yellow panel from `src/build_yellow_panel.py`). Points vs naive against
+production, 2019-24 / 2025-26 targets, at 1 / 3 / 6 months:
+- His weekly signals with Kasuwa fallback, 30% hidden in training (wkhis): +15.2 / +4.7, +3.1 / -3.3, +2.2 / -5.0;
+  passes at 1 month (all-years MAPE 8.30 -> 7.16%; 2024-26 8.16 -> 7.68%, p .03), better in 2025-26 than the FEWS
+  NET-only version (+1.8). Inside the joint forecast it lowers 1-month error from 6.45 to 6.11% all years (p < .001,
+  2019-24 +4.5 points) but adds nothing in 2025-26 (-0.0, p .99): the joint already gets weekly prices from his model.
+- Import parity at the street rate (parpar, scored 26 Oct): passes at 1 month (+3.0 / +5.4); in the joint, +0.1 points.
+- Price and parity volatility: 1 month +2.5 / +3.7 (passes; 2019-24 p .12), worse at 3 and 6; in the joint, +0.3.
+- Maize/sorghum gap: 1 month +0.5 / +1.9, not significant (p .25 / .20); worse at 6 months 2019-24.
+- Street-rate premium and alert: 6 months +1.1 / +3.4, not significant; 3 months -7.7 in 2019-24. Not kept.
+- Fail at every horizon or in 2025-26: monthly retraining (about 0 at 1 and 3, -0.8 / -2.2 at 6), own seasonal pattern
+  vs national (-4.5 at 1 month 2025-26), white/yellow gap, import-parity 24-month anchor (-15.5 / -13.1 at 6 months),
+  duty-change flags, event flags (-4.8 / -5.2 / -5.1 in 2025-26), yellow maize as training data (+1.7 / +2.5 at 1
+  and 3 months in 2019-24 but -10.4 / -8.9 / -7.1 in 2025-26).
+Not adopted; production (D-78) unchanged. Candidate for a future GRU component: wkhis at 1 month (joint gain in
+2019-24 only).
+
+
+## D-79. The analyst's inputs become plain CSV files; no workbook in the monthly run (2026-10-30)
+
+**Why.** The software team will not maintain an Excel workbook, and D-78 left one manual step: refreshing the
+analyst's workbook tabs each month. His code (`vendor/analyst_v4/v2_models.py`, unchanged) only ever reads one bundle
+of tables (`D_OVERRIDE`), which his `refit_feature_model_v4.py` builds from seven workbook tabs. So the bundle is now
+kept as CSV files and rebuilt from them, and the workbook leaves the run path.
+
+**What changed.**
+- `src/analyst_inputs.py export` wrote the seven tabs, once, to `data/analyst_inputs/`: white price, observed flag,
+  yellow price, sorghum (NGN per 100 kg, as his tab), macro (In_Macro B-K), weekly quotes with their source label,
+  zones and zone bands, plus two files for what a person enters: `manual_monthly.csv` (headline_mom, food_mom, cpi,
+  fx_parallel) and `kasuwa_weekly.csv` (the 115 Kasuwa quotes he uses where FEWS NET has no white quote that month).
+  `load_inputs` rebuilds the identical bundle: `check` gives forecasts equal to the workbook's, max relative
+  difference 0.0, as published and as in the workbook; `src/analyst_forecast.py --inputs data/analyst_inputs`
+  reproduces the production `outputs/joint_forecast/analyst_forecasts.csv` exactly (4,837 forecasts), and the
+  truncation test (`src/analyst_truncation_test.py --inputs`) still gives identical forecasts.
+- `src/analyst_inputs_update.py` writes a month's rows from the sources: white price and observed flag from the data
+  team's consolidated file (sheet `Data`, `1 - is_estimate`); yellow and sorghum from the FEWS NET monthly pull;
+  weekly white and yellow from the FEWS NET weekly API (`src/fetch_fewsnet_weekly.py`, now with `--product yellow`),
+  Kasuwa only where FEWS NET has no white quote; fx_official the CBN central-rate monthly mean; world maize, freight
+  and duty from the import parity CSV; the four manual values from `manual_monthly.csv`. Rebuilding Jan-Aug 2026 from
+  the sources (`--check`): white 88 of 88 cells equal, observed 88/88, macro columns the model uses 56/56, FEWS NET
+  weekly quotes 471/471, yellow 36/40, sorghum 55/64 (his history mixes FEWS NET's monthly figure with the mean of
+  weekly quotes for these two). Rebuilding those eight months into a copy and rerunning his model moves the Aug-2026
+  forecasts by at most 0.21% (1 month), 0.07% (3) and 0.13% (6); medians about 0.01%. Without the Kasuwa file the
+  moves reached 4.6%, which is why Kasuwa quotes are their own input.
+
+**Not changed.** His code, the as-published inflation lag, the joint forecast and its ranges. `--workbook` is kept on
+`src/analyst_forecast.py` and the truncation test to compare with any workbook he sends. Still manual each month:
+NBS headline and food inflation and CPI, and the street naira rate (press BDC quotes since Jan 2025), entered as one
+row of `manual_monthly.csv`; new Kasuwa quotes. When he changes his own inputs (new signals, new tabs), the CSV set
+and `load_inputs` must follow; ask him to send changes as code or CSVs rather than a workbook.

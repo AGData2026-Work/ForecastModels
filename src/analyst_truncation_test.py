@@ -1,7 +1,7 @@
 """
 Look-ahead check of the analyst's model code (2026-10-29), the counterpart of src/truncation_test_monthly.py for GRU.
 
-    python src/analyst_truncation_test.py --workbook data/external/analyst_v4/20261021_Analyst_Maize_Forecast_v4_White.xlsx \
+    python src/analyst_truncation_test.py --inputs data/analyst_inputs \
         --origins 2018-03 2020-07 2022-11 2024-06 2024-12 2025-05 2025-09 2026-02 --out outputs/joint_forecast/production_checks
 
 For each test origin o, every input his code reads (white and yellow prices, observed flags, macro, weekly quotes,
@@ -59,11 +59,17 @@ def truncate(D: dict, o: pd.Timestamp) -> dict:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--workbook", required=True)
+    src = ap.add_mutually_exclusive_group(required=True)
+    src.add_argument("--inputs", help="folder of his CSV inputs (src/analyst_inputs.py)")
+    src.add_argument("--workbook", help="legacy: his Excel workbook")
     ap.add_argument("--origins", nargs="+", required=True)
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
-    D = his_inputs(str(Path(a.workbook).resolve()))
+    if a.inputs:
+        from analyst_inputs import load_inputs
+        D = load_inputs(a.inputs)
+    else:
+        D = his_inputs(str(Path(a.workbook).resolve()))
     full = run_model(D)
     rows = []
     for o in a.origins:
