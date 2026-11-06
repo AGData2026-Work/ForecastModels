@@ -80,8 +80,13 @@ def train_one(
     lr_schedule: str = "none",
     huber_delta: float = 1.0,
     run_label: str = "",
+    n_bins: int = 0,
 ) -> tuple[RecurrentForecaster, dict]:
     """Chronologically split, early-stopped fit. Returns the best-validation state.
+
+    n_bins > 0 (range experiment, 2026-11-03; off in every production config): the head emits n_bins scores per
+    horizon, y holds each horizon's bin label (long, -1 = missing), and the loss is cross-entropy, so early stopping
+    is on validation log loss.
 
     `run_label` is only used to make a NaN/Inf error message identify which
     cut/seed produced it; passing nothing still fails loudly, just without
@@ -91,9 +96,18 @@ def train_one(
     if lr_schedule == "cosine":
         sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=epochs)
     loss_fn = nn.HuberLoss(delta=huber_delta, reduction="none")
+    if n_bins:
+        def _ce(pred, y):                                  # per-row, per-horizon cross-entropy, labels -1 ignored
+            l = nn.functional.cross_entropy(pred.view(len(y), -1, n_bins).transpose(1, 2), y,
+                                            ignore_index=-1, reduction="none")
+            return l, (y >= 0).float()
+
+        def loss_fn(pred, y):                              # noqa: F811  (mean over horizons, used per row below)
+            l, m = _ce(pred, y)
+            return l * m / m.mean(dim=1, keepdim=True).clamp(min=1e-6)
     # D-72 partial targets: NaN targets are masked out of every loss. Only switched on when a
     # target is NaN, so every existing run takes the unmasked path below, unchanged.
-    masked = bool(torch.isnan(ytr).any() or torch.isnan(yva).any())
+    masked = False if n_bins else bool(torch.isnan(ytr).any() or torch.isnan(yva).any())
     if masked:
         mtr, mva = torch.isfinite(ytr).float(), torch.isfinite(yva).float()
         ytr, yva = torch.nan_to_num(ytr), torch.nan_to_num(yva)

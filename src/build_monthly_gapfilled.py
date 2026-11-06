@@ -124,7 +124,9 @@ def build_panel(L: pd.DataFrame, w: pd.DataFrame, published: bool, observed_only
     return P.drop(columns=["month"]), log, price, flag, fill_kind, markets
 
 
-def build_grid(price, flag, fill_kind, markets, horizons=None):
+def build_grid(price, flag, fill_kind, markets, horizons=None, last_origin: str = "2026-07"):
+    """last_origin: the month before the panel's last month (the last origin with a 1-month actual); main() passes it
+    from --last-month (default 2026-08 -> 2026-07, the original fixed value)."""
     horizons = horizons or HORIZONS
     # right-hand anchor month of every interpolated cell, from its fill_kind text
     anchor = {}
@@ -133,7 +135,7 @@ def build_grid(price, flag, fill_kind, markets, horizons=None):
             anchor[(m, mo)] = pd.Period(fk.split(" and ")[1][:7], freq="M")
     rows, drops = [], {"no_origin_price": 0, "interpolated_input_from_after_origin": 0}
     for m in [x for x in markets if x != "Aba"]:
-        for o in pd.period_range("2015-09", "2026-07", freq="M"):
+        for o in pd.period_range("2015-09", last_origin, freq="M"):
             p0 = price.get((m, o), np.nan)
             if not np.isfinite(p0):
                 drops["no_origin_price"] += 1
@@ -170,16 +172,19 @@ def main() -> None:
                     help="last panel month (default 2026-08, production); later months need a gap-filled panel that has them")
     ap.add_argument("--fewsnet-diesel", default=None,
                     help="FEWS NET API export (.xlsx, sheet diesel_retail_litre): use it as the only diesel source")
+    ap.add_argument("--weekly-drivers", default="data/panel_weekly_oos2026_fewsdiesel.parquet",
+                    help="weekly panel the monthly diesel, rainfall and NDVI are averaged from")
     a = ap.parse_args()
     sfx = a.suffix if a.suffix is not None else ("_pit" if a.published else "") + ("_obsonly" if a.observed_only else "")
     P, log, price, flag, fill_kind, markets = build_panel(
-        pd.read_excel(a.filled, "Long_panel"), pd.read_parquet("data/panel_weekly_oos2026_fewsdiesel.parquet"),
+        pd.read_excel(a.filled, "Long_panel"), pd.read_parquet(a.weekly_drivers),
         a.published, a.observed_only, a.driver_lag,
         pd.read_excel(a.fewsnet_diesel, "diesel_retail_litre").set_index("month") if a.fewsnet_diesel else None,
         a.upstream_lag, a.no_upstream, a.last_month)
     log["source"] = a.filled
+    log["weekly_drivers"] = a.weekly_drivers
     P.to_parquet(f"data/panel_monthly_gapfilled{sfx}.parquet", index=False)
-    G, drops = build_grid(price, flag, fill_kind, markets, a.horizons)
+    G, drops = build_grid(price, flag, fill_kind, markets, a.horizons, str(pd.Period(a.last_month, freq="M") - 1))
     G.to_parquet(f"data/monthly_grid_gapfilled{sfx}.parquet", index=False)
     log["grid"] = {"rows_by_horizon": G.groupby("horizon").size().to_dict(), "origins_dropped": drops,
                    "rows_with_filled_origin_by_horizon": G[G.origin_flag != "observed"].groupby("horizon").size().to_dict(),

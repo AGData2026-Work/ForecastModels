@@ -90,6 +90,11 @@ def main() -> None:
                     help="override the retrain cut dates (YYYY-MM-DD). Default: every "
                          "retrain_every_weeks from the first grid origin, as before. Used to fit "
                          "once at a fixed date for an out-of-sample test")
+    ap.add_argument("--serving-cut", default=None,
+                    help="YYYY-MM-DD, with --save-latest-cut-models: also fit one cut at this date for live forecasting "
+                         "even though no scored origin falls on or after it yet (e.g. cut 2026-09-01 while Sep's "
+                         "1-month actual is unpublished). It uses only windows whose last target is before the cut, "
+                         "scores nothing and saves its checkpoints as the latest cut. Every other cut is unchanged.")
     ap.add_argument("--require-horizons", type=int, nargs="+", default=None,
                     help="only these horizons (a subset of --config's protocol.horizons) "
                          "must have a real actual for an origin to be scored; others may "
@@ -108,6 +113,21 @@ def main() -> None:
     dev = torch.device(a.device)
 
     H = cfg["protocol"]["horizons"]
+    # range experiment (2026-11-03): training.bin_edges_pct {h: [edges as fractions]} turns the GRU into a bin
+    # classifier (src/model.py train_one n_bins). Absent from every production config.
+    bin_edges = cfg["training"].get("bin_edges_pct")
+    n_bins = 0
+    if bin_edges:
+        bin_edges = {int(k): [float(e) for e in v] for k, v in bin_edges.items()}
+        n_bins = len(next(iter(bin_edges.values()))) + 1
+        assert all(len(v) + 1 == n_bins for v in bin_edges.values()) and set(bin_edges) == set(H)
+
+        def bin_labels(y):
+            lab = np.full(y.shape, -1, dtype=np.int64)
+            for hi, h in enumerate(H):
+                ok = np.isfinite(y[:, hi])
+                lab[ok, hi] = np.digitize(np.expm1(y[ok, hi]), bin_edges[h])
+            return lab
     max_h = max(H)
     L = cfg["model"]["lookback"]
     use_lag52 = bool(cfg["features"]["explicit_lag52"])
@@ -188,7 +208,17 @@ def main() -> None:
         cuts = [pd.Timestamp(c) for c in a.cuts]
         if min(cuts) > grid["origin"].min():
             raise SystemExit(f"--cuts must start on or before the first origin {grid['origin'].min().date()}")
+    serving_cut = pd.Timestamp(a.serving_cut) if a.serving_cut else None
+    if serving_cut is not None:
+        if not a.save_latest_cut_models:
+            raise SystemExit("--serving-cut needs --save-latest-cut-models")
+        if serving_cut <= max(cuts):
+            raise SystemExit(f"--serving-cut {serving_cut.date()} must be after the last scheduled cut {max(cuts).date()}")
+        if serving_cut <= grid["origin"].max():
+            raise SystemExit("--serving-cut must be after the last scored origin; use the normal cut schedule instead")
     grid = grid.assign(cut=assign_to_cuts(grid, cuts))
+    if serving_cut is not None:
+        cuts = list(cuts) + [serving_cut]
     if a.smoke:
         keep_cuts = sorted(grid["cut"].unique())[:3]
         grid = grid[grid["cut"].isin(keep_cuts)]
@@ -208,7 +238,8 @@ def main() -> None:
 
     for ci, cut in enumerate(cuts):
         served = grid[grid["cut"] == cut]
-        if not len(served):
+        serving_only = serving_cut is not None and pd.Timestamp(cut) == serving_cut
+        if not len(served) and not serving_only:
             continue
         cut_i = panel.pos.get(pd.Timestamp(cut))
         if cut_i is None:
@@ -245,10 +276,12 @@ def main() -> None:
         idtr = mtr_all["market_id"].values[tr_i]
         idva = mtr_all["market_id"].values[va_i]
 
-        sc = Scaler().fit(Xtr, Ftr, ytr if cfg["training"]["scale_targets"] else None)
+        sc = Scaler().fit(Xtr, Ftr, ytr if cfg["training"]["scale_targets"] and not bin_edges else None)
         Xtr_s, Ftr_s = sc.transform(Xtr, Ftr)
         Xva_s, Fva_s = sc.transform(Xva, Fva)
         ytr_s, yva_s = sc.y_forward(ytr), sc.y_forward(yva)
+        if bin_edges:                                      # bin labels of each horizon's % change; -1 = missing
+            ytr_s, yva_s = bin_labels(ytr), bin_labels(yva)
 
         w = recency_weights(mtr_all["origin"].values[tr_i],
                             cfg["training"]["recency_half_life_weeks"])
@@ -261,17 +294,21 @@ def main() -> None:
                 w = w * np.where(up, len(up) / (2.0 * n_up), len(up) / (2.0 * n_dn))
             slog.update(direction_balance_up=n_up, direction_balance_down=n_dn)
 
-        Xte, Fte, yte, mte, sk = build_grid_windows(
-            panel, served, H, L, use_lag52=use_lag52, use_realised_drivers=use_realised,
-            realised_upstream=realised_upstream, driver_source=driver_source,
-            require_horizons=a.require_horizons, use_macro=use_macro,
-            use_fx_summary=use_fx_summary)
+        if serving_only:
+            mte, sk = pd.DataFrame(), pd.DataFrame()
+        else:
+            Xte, Fte, yte, mte, sk = build_grid_windows(
+                panel, served, H, L, use_lag52=use_lag52, use_realised_drivers=use_realised,
+                realised_upstream=realised_upstream, driver_source=driver_source,
+                require_horizons=a.require_horizons, use_macro=use_macro,
+                use_fx_summary=use_fx_summary)
         if len(sk):
             sk = sk.assign(cut=cut)
             skips.extend(sk.to_dict("records"))
-        if not len(mte):
+        if not len(mte) and not serving_only:
             continue
-        Xte_s, Fte_s = sc.transform(Xte, Fte)
+        if not serving_only:
+            Xte_s, Fte_s = sc.transform(Xte, Fte)
 
         if a.save_latest_cut_models:
             # Only the most recent cut's models are ever kept on disk: the
@@ -288,16 +325,17 @@ def main() -> None:
             torch.manual_seed(seed)
             np.random.seed(seed)
             net = RecurrentForecaster(
-                a.kind, Xtr.shape[-1], len(panel.markets), len(H),
+                a.kind, Xtr.shape[-1], len(panel.markets), len(H) * (n_bins or 1),
                 n_flat=Ftr.shape[1], hidden=hidden,
                 emb=cfg["model"]["market_embedding_dim"],
                 dropout=cfg["model"]["head_dropout"],
                 input_dropout=cfg["model"]["input_dropout"],
                 num_layers=cfg["model"].get("num_layers", 1),
             ).to(dev)
+            Y = I if bin_edges else T
             net, info = train_one(
-                net, T(Xtr_s), T(Ftr_s), I(idtr), T(ytr_s), T(w),
-                T(Xva_s), T(Fva_s), I(idva), T(yva_s),
+                net, T(Xtr_s), T(Ftr_s), I(idtr), Y(ytr_s), T(w),
+                T(Xva_s), T(Fva_s), I(idva), Y(yva_s),
                 epochs=4 if a.smoke else cfg["training"]["epochs"],
                 batch=cfg["training"]["batch_size"],
                 lr=cfg["training"]["lr"],
@@ -306,6 +344,7 @@ def main() -> None:
                 weight_decay=cfg["training"]["weight_decay"],
                 lr_schedule=cfg["training"]["lr_schedule"],
                 huber_delta=cfg["training"]["huber_delta"],
+                n_bins=n_bins,
             )
             if a.save_latest_cut_models:
                 save_checkpoint(net, sc, cut_dir / f"seed_{seed}.pt", meta={
@@ -317,9 +356,32 @@ def main() -> None:
                     "num_layers": cfg["model"].get("num_layers", 1),
                     "market_embedding_dim": cfg["model"]["market_embedding_dim"],
                 })
+            hist = info.pop("history", [])
+            if serving_only:                               # live-forecast cut: trained and saved, nothing to score
+                epoch_rows.extend(dict(cut=cut, seed=seed, **h) for h in hist)
+                info.update(cut=cut, seed=seed, n_params=net.n_params(), n_served=0,
+                            purge_applied=slog["purge_weeks_applied"], serving_cut=True)
+                tlog.append(info)
+                continue
+            if bin_edges:
+                logits = predict(net, T(Xte_s), T(Fte_s), I(mte["market_id"].values)).reshape(len(mte), len(H), n_bins)
+                prob = np.exp(logits - logits.max(axis=2, keepdims=True))
+                prob /= prob.sum(axis=2, keepdims=True)
+                epoch_rows.extend(dict(cut=cut, seed=seed, **h) for h in hist)
+                info.update(cut=cut, seed=seed, n_params=net.n_params(), n_served=len(mte),
+                            purge_applied=slog["purge_weeks_applied"])
+                tlog.append(info)
+                for r in range(len(mte)):
+                    for hi, h in enumerate(H):
+                        actual_h = mte[f"actual_h{h}"].iloc[r]
+                        if pd.isna(actual_h):
+                            continue
+                        rows.append(dict(seed=seed, origin=mte["origin"].iloc[r], market=mte["market"].iloc[r], h=h,
+                                         origin_price=float(mte["origin_price"].iloc[r]), actual=float(actual_h),
+                                         **{f"p{k}": float(prob[r, hi, k]) for k in range(n_bins)}))
+                continue
             yhat = sc.y_inverse(predict(net, T(Xte_s), T(Fte_s),
                                         I(mte["market_id"].values)))
-            hist = info.pop("history", [])
             epoch_rows.extend(dict(cut=cut, seed=seed, **h) for h in hist)
             info.update(cut=cut, seed=seed, n_params=net.n_params(),
                         n_served=len(mte), purge_applied=slog["purge_weeks_applied"])
@@ -352,6 +414,18 @@ def main() -> None:
 
     if not rows:
         raise SystemExit("no forecasts produced; check the config paths")
+
+    if bin_edges:                                          # range experiment: bin probabilities only, no point scores
+        pd.DataFrame(rows).to_csv(out / "forecasts_bins.csv", index=False)
+        pd.DataFrame(tlog).to_csv(out / "training_log.csv", index=False)
+        pd.DataFrame(splits).to_csv(out / "split_log.csv", index=False)
+        pd.DataFrame(epoch_rows).to_csv(out / "epoch_log.csv", index=False)
+        (out / "run_metadata.json").write_text(json.dumps(jsonable(dict(
+            build=cfg["build"]["name"], kind=a.kind, convention=a.convention, smoke=a.smoke, horizons=H,
+            bin_edges_pct=bin_edges, seeds=seeds, hidden=hidden, n_retrain_cuts=len(cuts),
+            require_horizons=a.require_horizons, config=cfg)), indent=2))
+        print(f"wrote {out / 'forecasts_bins.csv'} ({len(rows)} rows)")
+        return
 
     fc = pd.DataFrame(rows)
     fc.to_csv(out / "forecasts.csv", index=False)

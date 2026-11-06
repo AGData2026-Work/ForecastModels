@@ -373,10 +373,31 @@ this is the whole mechanism.
 
 Run once FEWS NET has published last month's prices, for the forecast dated the 15th. Three steps, in order.
 
-1. **GRU.** Refresh the monthly panel as for D-77 (`src/build_gapfilled_panel.py`, `src/build_monthly_gapfilled.py
-   --published`), then `python src/predict.py --run-dir outputs/production_monthly_parity_serving`. Writes
-   `outputs/production_monthly_parity_serving/predictions/<today>.csv`.
-2. **Inflation Adjusted.** No Excel workbook is involved (since 2026-10-30, D-79). His inputs are the CSV files in
+0. **Check FEWS NET with `src/fewsnet_monitor.py`** (one API request per month, with a cache-busting parameter; on 4 Nov 2026 a
+   request over Jun-Sep came back without Sep, which hid Sep 2026, published 4 Oct, and the same request returned all four
+   months on 5 Nov, so the cause is unknown and the page repeats the multi-month request as a cross-check and flags any
+   disagreement). Then re-check the last six months against the panel's FEWS NET export:
+   `python src/fewsnet_revision_check.py --first <6 months back> --last <latest month> --ours <export xlsx> --raw
+   data/external/<YYYYMMDD>_FEWSNET_API_Nigeria_AllRows_Monthly_<first>_<last>_v1.parquet --out outputs/fewsnet_revisions_<YYYYMMDD>`.
+   FEWS NET edits recent months in place without changing their status dates (Jul and Aug 2026, found 6 Nov 2026), so
+   only a value comparison shows a revision. Any change goes into the panel before the forecast runs. The page shows the monthly values
+   and the weekly quotes in the month. For a part-month or late-monthly view, `python src/fewsnet_weekly_feeder.py --out data/external/<YYYYMMDD>_FEWSNET_WeeklyFeed_Monthly_v1.csv`
+   prints, per market, weeks in / weeks expected and complete / partial for the latest month. Then add
+   `--fews-weekly-feed <that file> --through <YYYY-MM>` to the `src/build_gapfilled_panel.py` call in step 1:
+   for months after the last monthly release, the weekly mean fills a market ahead of every proxy (flag
+   filled_direct, source 'FEWS NET weekly'). The monthly value replaces it when it is published.
+
+1. **GRU.** Refresh every input before predicting (6 Nov 2026: rainfall and NDVI had been carried forward for 4-5
+   months and moved the 6-month forecast by 7-12%): weekly drivers with `src/climate_refresh.py` (HDX rainfall and NDVI,
+   FEWS NET diesel; see its docstring), CBN rate (`src/fetch_cbn_fx.py`), import parity (NADIH, with FRED's published
+   world maize price where NADIH's differs), then the panel (`src/build_gapfilled_panel.py`,
+   `src/build_monthly_gapfilled.py --published --last-month <YYYY-MM> --weekly-drivers <file>`), then
+   `python src/predict.py --run-dir outputs/production_monthly_parity_serving`. Writes
+   `outputs/production_monthly_parity_serving/predictions/<today>.csv`. Every 3 months (cuts 1 Dec, 1 Mar, 1 Jun,
+   1 Sep) retrain with `src/run.py ... --require-horizons 1 --save-latest-cut-models --serving-cut <cut>` and rerun the
+   three backtests; the full commands are in the recreation pack's RECREATE.md (v4) section 4.
+2. **Inflation Adjusted.** No Excel workbook is involved (since 2026-10-30, D-79). From Jul 2026 his white maize prices
+   come from the production panel, not the data team's consolidated file (owner decision, 6 Nov 2026). His inputs are the CSV files in
    `data/analyst_inputs/` (`src/analyst_inputs.py` describes each). For the new month `<YYYY-MM>`:
    a. pull the sources: `python src/fetch_fewsnet_weekly.py --out data/external/<YYYYMMDD>_FEWSNET_API_Nigeria_WeeklyMaizeWhite_v1.csv`,
       the same with `--product yellow` (`..._WeeklyMaizeYellow_v1.csv`), the FEWS NET monthly pull (white is not taken

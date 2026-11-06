@@ -18,8 +18,11 @@ evaluate: production GRU forecasts (outputs/d75_monthly_parity_pit/h{1,3,6}/pred
 on shared (market, origin, horizon), scored on FEWS NET observed actuals against naive on the same pairs; periods all
 years, 2019-24, 2025-26 and Oct 2024 to Aug 2026; Diebold-Mariano p for joint vs GRU; the two-period keep rule.
 
-live: also writes 80% and 90% ranges, the production method applied to the joint forecast (quantiles of every past
-miss whose target month is at or before the origin, pooled over markets, per horizon; GRU alone before Jan 2017).
+live: also writes 80% and 90% ranges, the production method applied to the joint forecast: quantiles of every past
+miss whose target month is at or before the origin (GRU alone before Jan 2017), per horizon. At 1 month the misses are
+the market's own (at least N_MIN_OWN, else pooled; owner decision 2026-11-06 after src/range_per_market.py: interval
+score 3.2% better, t -3.7, calm markets narrower, volatile wider); at 3 and 6 months pooled over markets. Past misses are
+scored on the production grid's actuals (FEWS NET's revised Jul/Aug 2026 since 2026-11-06).
 """
 from __future__ import annotations
 
@@ -76,15 +79,39 @@ def evaluate(analyst: pd.DataFrame, out: Path) -> pd.DataFrame:
     return t, k
 
 
-def past_misses(analyst: pd.DataFrame, h: int, until: pd.Timestamp) -> np.ndarray:
-    """log(actual / joint) for every production forecast whose target month is at or before `until` (known by the
-    forecast date); before the analyst's first forecast (Jan 2017) the joint falls back to the GRU alone."""
+PER_MARKET_HORIZONS = (1,)   # horizons whose ranges use the market's own past misses (owner decision 2026-11-06)
+N_MIN_OWN = 24               # fewer own misses than this: pooled
+GRID = "data/monthly_grid_gapfilled_pit.parquet"
+
+
+def revised_actuals(x: pd.DataFrame, h: int) -> pd.DataFrame:
+    """Replace `actual` by the production grid's (FEWS NET observed, incl. later revisions such as Jul/Aug 2026)."""
+    g = pd.read_parquet(GRID).query("horizon == @h")[["market", "origin", "actual"]].rename(columns={"actual": "actual_grid"})
+    g["origin"] = pd.to_datetime(g.origin)
+    x = x.merge(g, on=["market", "origin"], how="left")
+    x["actual"] = x.actual_grid.fillna(x.actual)
+    return x.drop(columns="actual_grid")
+
+
+def range_quantiles(e: np.ndarray, markets: np.ndarray, market: str, h: int, q) -> tuple[np.ndarray, str, int]:
+    """The production range rule: (quantiles, method, misses used)."""
+    if h in PER_MARKET_HORIZONS:
+        own = e[markets == market]
+        if len(own) >= N_MIN_OWN:
+            return np.quantile(own, q), "own market", len(own)
+    return np.quantile(e, q), "pooled", len(e)
+
+
+def past_misses(analyst: pd.DataFrame, h: int, until: pd.Timestamp) -> pd.DataFrame:
+    """market and e = log(actual / joint) for every production forecast whose target month is at or before `until`
+    (known by the forecast date); before the analyst's first forecast (Jan 2017) the joint falls back to the GRU alone."""
     g = pd.read_csv(EVAL.format(h=h), parse_dates=["origin"]).query("h == @h")
+    g = revised_actuals(g, h)
     g["target"] = g.origin + pd.DateOffset(months=h)
     x = g.merge(analyst[analyst.h == h][["market", "origin", "p0", "recommended"]], on=["market", "origin"], how="left")
     x["joint"] = combine(x.GRU, x.origin_price, x.recommended, x.p0).fillna(x.GRU)
     x = x[x.target <= until]
-    return np.log(x.actual / x.joint).to_numpy()
+    return pd.DataFrame({"market": x.market.to_numpy(), "e": np.log(x.actual / x.joint).to_numpy()})
 
 
 def live(analyst: pd.DataFrame, gru_path: str, out: Path) -> pd.DataFrame:
@@ -95,20 +122,19 @@ def live(analyst: pd.DataFrame, gru_path: str, out: Path) -> pd.DataFrame:
     x = x.rename(columns={"origin_price": "origin_price_gru", "p0": "origin_price_analyst",
                           "forecast_price": "gru", "recommended": "inflation_adjusted"})
     x["origin_price_gap_pct"] = 100 * (x.origin_price_analyst / x.origin_price_gru - 1)
-    # 80% and 90% ranges: the production method (quantiles of all past misses known by the forecast date, pooled
-    # over markets, per horizon), applied to the joint forecast
+    # 80% and 90% ranges: the production method (range_quantiles: past misses known by the forecast date, the
+    # market's own at 1 month, pooled at 3 and 6), applied to the joint forecast
     for h in sorted(x.h.unique()):
         r = past_misses(analyst, int(h), x.origin.max())
-        m = x.h == h
-        for lv in (80, 90):
-            a = (100 - lv) / 200
-            x.loc[m, f"lo{lv}"] = x.loc[m, "joint"] * np.exp(np.quantile(r, a))
-            x.loc[m, f"hi{lv}"] = x.loc[m, "joint"] * np.exp(np.quantile(r, 1 - a))
-        x.loc[m, "n_past_misses"] = len(r)
+        e, mk = r.e.to_numpy(), r.market.to_numpy()
+        for i in x.index[x.h == h]:
+            q, how, n = range_quantiles(e, mk, x.at[i, "market"], int(h), [0.05, 0.10, 0.90, 0.95])
+            x.loc[i, ["lo90", "lo80", "hi80", "hi90"]] = x.at[i, "joint"] * np.exp(q)
+            x.loc[i, ["range_method", "n_past_misses"]] = [how, n]
     x["note"] = np.where(x.inflation_adjusted.isna(), "no analyst forecast for this market and origin; joint not issued",
                          np.where(x.origin_price_gap_pct.abs() > 1, "origin prices differ by more than 1%", ""))
     cols = ["market", "origin", "h", "origin_price_gru", "origin_price_analyst", "origin_price_gap_pct", "gru",
-            "inflation_adjusted", "joint", "lo80", "hi80", "lo90", "hi90", "n_past_misses", "note"]
+            "inflation_adjusted", "joint", "lo80", "hi80", "lo90", "hi90", "range_method", "n_past_misses", "note"]
     out.parent.mkdir(parents=True, exist_ok=True)
     x[cols].round(2).to_csv(out, index=False)
     return x[cols]

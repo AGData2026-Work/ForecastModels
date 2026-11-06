@@ -3979,3 +3979,365 @@ kept as CSV files and rebuilt from them, and the workbook leaves the run path.
 NBS headline and food inflation and CPI, and the street naira rate (press BDC quotes since Jan 2025), entered as one
 row of `manual_monthly.csv`; new Kasuwa quotes. When he changes his own inputs (new signals, new tabs), the CSV set
 and `load_inputs` must follow; ask him to send changes as code or CSVs rather than a workbook.
+
+
+**Range experiments from the distributions guide (2026-11-03).** Source: `Forecasting_Price_Distributions_Guide.docx`
+(@Izzy, 2 Nov). Experiment only; production ranges unchanged. Script `src/range_experiments.py`, outputs
+`outputs/range_experiments/` (`scores.csv`, `calibration.csv`, `forecast_rows.csv.gz`). Bins on the % change from the
+origin price, fixed before testing: 1 month -5/-2/+2/+5%, 3 months -10/-3/+3/+10%, 6 months -15/-5/+5/+15% (the
+edges that reproduce the guide's 6-month table). Test: shared production pairs, origins Jan 2019 on, FEWS NET observed
+actuals (1,141 / 1,101 / 1,052 rows); every past miss used was known by the forecast date.
+- The scorer reproduces the guide: his feature model at 1 month 1.30 log loss, 0.162 ranked probability score (RPS),
+  75% inside the 80% range, width 19%; import switch at 3 and 6 months and all three no-view baselines also match. His
+  "Inflation-adjusted" row is near his V5 model at 1 month but does not match at 3 and 6 (likely an older version).
+- Route B (each model's forecast times its past misses). RPS skill vs no-view, all test years, 1 / 3 / 6 months: joint
+  forecast with the production method (B0) +27 / +25 / +22%, the best at every horizon; GRU +13 / +22 / +20%;
+  Inflation Adjusted +23 / +15 / +6% (6 months not significant, p .21). Joint B0 80% range holds 84 / 84 / 84% of
+  actuals; calibration good at 1 and 3 months (stated 70%+ happened 83-86%).
+- The guide's repairs do not help: last 3 years only (B1), recency weights (B2), volatility scaling (B3) and B2+B3
+  all lower RPS skill on the joint forecast at 3 and 6 months over the test years; at 1 month B2 and B4 gain 0.4-0.5
+  points (27.7 and 27.5 vs 27.1%) while 80% coverage falls from 84% to 79-81%. B1 / B2 / B4 drop 80% coverage to
+  74-81% at every horizon. Volatility scaling lifts 6-month coverage in 2025-26 from 50% to 62% but widens the range from 84% to 131% of
+  the forecast. The 2025-26 shortfall is bias, not width: at 3 and 6 months every miss is below the range (25% and
+  50% of actuals below, 0% above).
+- Route A (the GRU with a 5-bin head, cross-entropy, same walk-forward; `configs/_checks/range_bins_gru.yaml`,
+  `outputs/range_experiments/route_a/`): RPS skill +2 / +5 / +4% (1 and 6 months not significant), far below the same
+  GRU wrapped in its own misses (+13 / +22 / +20%). Over-confident: the walk-forward temperature settles at 1.6 / 2.2 /
+  2.3 (3.0, the top of the grid, at many 6-month origins); with it, +3 / +4 / -1%. Not pursued.
+Outcome: keep the production range method; bin probabilities can be added to the published forecast from the same
+past misses (they reproduce the published 80% ranges exactly). The open problem is the bias in falling markets.
+
+**Sep and Oct 2026 by proxy, and do the error rates hold up? (owner request, 2026-11-04).** FEWS NET had released
+nothing after Aug 2026 by 4 Nov (API checked: 0 markets for Sep or Oct). Owner: read the two export dates after 4 Nov
+(2026-12-10, 2026-11-10) as 12 and 11 Oct, and the Lashe Money 37,000 per 370 kg row as 370/kg on a 100 kg bag.
+- Inputs: `20261104_Kasuwa_WhiteMaize_Collector_2025-12_2026-10_v1.xlsx` (Downloads; the Jan-Sep collector file plus
+  the 4 Nov export, corrections in its `note` column). `data/analyst_inputs/kasuwa_weekly.csv` gains 16 Sep-Oct quotes
+  (Gombe Biliri/Kumo, Gujungu Hadejia, Giwa; backup in `data/analyst_inputs/_backup/`); every earlier row matched the
+  collector file exactly, and the analyst's forecasts are unchanged (his inputs stop at Aug). CBN daily rate refreshed
+  to 3 Nov (`data/external/20261104_CBN_..._2026-11_v1.csv`; CBN revised one past value, 12 Dec 2023, 848.78 -> 853.28).
+- `src/build_gapfilled_panel.py --extra-standins` (off by default; the default build still reproduces v3 exactly):
+  Kano, Dawanau <- AFEX Dawanau, Kaura Namoda <- AFEX Talata Mafara, Damaturu <- collector Potiskum, level-adjusted by
+  the usual prior-overlap ratio, and only for months after FEWS NET's last release. Allowed earlier, AFEX Dawanau would
+  replace Kano's Feb-Mar 2025 interpolation (679 -> 680) with 531 and 515. Panel v8
+  (`20261104_FEWSNET_Maize_Monthly_GapFilled_Panel_v8.xlsx`) = v3 + AFEX maize v3 + AFEX chat to 30 Oct (old crop
+  only) + the collector file + these stand-ins, through Oct 2026. Through Aug it differs from v3 in 15 cells, all the
+  AFEX corrections already in v5/v6 (e.g. Saminaka Oct 2024 465 -> 587, the old-crop fix). Sep has 9 markets, Oct 8;
+  Maiduguri, Ibadan, Lagos, Gwandu, Gombe, Gujungu have no value (Mubi none in Oct).
+- GRU rerun, no retraining (production checkpoint cut 2026-06-01, copied into `outputs/proxy_20261104/`): control run
+  reproduces the 12 Oct production file exactly. Origins Sep and Oct 2026 on v8 (Oct parity = Sep carried forward,
+  `..._OctIsSepCarriedForward_v1.csv`); origins Jun and Jul 2026 on v3 cut at the origin, for 3-month forecasts of Sep
+  and Oct (the cut-2026-06-01 checkpoint is point-in-time for origins Jun on; the checkpoint for Mar-Apr origins was
+  not saved, so 6 months is the analyst's model only).
+- Scored (`src/proxy_sepoct_check.py`, `outputs/proxy_20261104/sepoct_summary.csv`, `sepoct_rows.csv`) against the
+  proxies, n = 8-9 per set. Headline MAPE, proxy actuals as in v8: issued Aug -> Sep joint 6.8% (backtest 2025-26 6.6%),
+  naive 6.0%, 9 of 9 inside the 80% range; Jun -> Sep 3 months joint 10.6% (backtest 16.8%), naive 7.2%; Jul -> Oct 3
+  months joint 22.6%, naive 13.7%, 5 of 8 inside, 3 above; analyst 6 months 13.1% (Sep) and 26.0% (Oct) against his
+  backtest 28.2%; GRU from the proxied Sep origin to Oct 10.5% (backtest 8.0%), naive 7.2%. Every set under-forecasts
+  (bias -5 to -26%): the models expected the usual post-harvest fall; the proxies show prices rising into October.
+- The measuring stick is uncertain at harvest. In past Sep-Oct months FEWS NET sat further below AFEX than in other
+  months (Dandume 0.81 against 0.96, 8 months; Saminaka 0.83 against 0.95, 5 months), so v8's AFEX-based Sep-Oct values
+  are probably about 15% high. With harvest-month ratios: issued Aug -> Sep 9.5% (naive 9.0%), 6 of 9 inside;
+  Jul -> Oct 19.8%, 7 of 8 inside; Sep -> Oct GRU 7.7% (naive 5.0%). FEWS NET's own Aug -> Oct median move was
+  -16% to -37% in 2016-18, 2020-21 and 2023 (+9% in 2019, +2% in 2022), so a rise in Oct 2026 would be unusual.
+Outcome: 1-month error holds at about the backtest level; 3 months from July misses low by about 20%, beyond the
+backtest, but the proxy level in harvest months is uncertain by about as much as the errors. Not a verdict until FEWS
+NET releases Sep and Oct. Production unchanged; the Oct-origin GRU forecasts (`gru_origin_202610_forecasts_with_ranges.csv`)
+sit 15-30% above production's Nov forecasts because the Oct proxy prices are high.
+
+**Follow-up the same day: harvest ratio applied, and FEWS NET's weekly September figures.** At the owner's request the
+AFEX fills were re-levelled with the harvest-month ratio (`src/build_gapfilled_panel.py --harvest-ratio`: an AFEX fill in
+Sep or Oct uses the median FEWS NET / AFEX ratio over prior Sep-Oct overlaps, at least 5, point in time). Panel v9
+(`20261104_FEWSNET_Maize_Monthly_GapFilled_Panel_v9_HarvestRatio.xlsx`) differs from v8 in 13 cells: Dandume, Kano,
+Kaura Namoda and Saminaka in Sep-Oct 2026, plus Dandume Oct 2024 and Oct 2025 and Saminaka Oct 2024, Sep 2025 and Oct 2025
+(history, not read by the Sep and Oct origins' 6-month input windows). The GRU was rerun from Sep and Oct on v9
+(`outputs/proxy_20261104/gru_serving_origin_2026{09,10}_v9harvest/`); Sep -> Oct scored 11.7% on v9 against 10.5% on v8.
+
+FEWS NET's weekly series (`src/fetch_fewsnet_weekly.py`, 4 Nov) already holds Sep 2026 for 8 markets (Biu, Damaturu,
+Dandume, Ibadan, Kaura Namoda, Maiduguri, Mubi, Potiskum; not Kano). Its monthly mean equalled the published monthly value
+in 1,791 of 1,791 market-months from 2015 to Jun 2026 (Jul-Aug 2026 within 2.6%, Dandume Aug 6.4%), so it is a close,
+provisional stand-in for the monthly release. Scored on it (`src/proxy_rescore.py`, `outputs/proxy_20261104/rescore_*.csv`):
+issued Aug -> Sep joint 4.7% (do-nothing 4.6%, 8 of 8 inside the 80% range; backtest 6.6%); Jun -> Sep joint 6.3% (do-nothing
+2.3%; backtest 16.8%); analyst Mar -> Sep 13.2% (do-nothing 20.1%; backtest 28.2%). Every set still under-forecasts (bias
+-4.7% to -13.2%). Against FEWS NET, the v8 proxies were off by -11.0% (Mubi) to +8.8% (Kaura Namoda); the harvest ratio
+moved Dandume from +3.8% to -12.6% and Kaura Namoda from +8.8% to +11.6%, i.e. further away in September. Outcome: on
+FEWS NET's own numbers the September error rates hold; the poor proxy-based September scores came from the proxies.
+October is still scored only on proxies, which missed FEWS NET by up to 11% in September, so the October results are not a
+verdict. Recommendation (owner to decide): keep v8 as the reference panel and do not adopt the harvest ratio.
+
+**Owner decision (2026-11-04): keep panel v8, drop the harvest ratio.** v8 stays the reference panel for the proxy check
+and any Sep-Oct 2026 runs. `--harvest-ratio` stays in `src/build_gapfilled_panel.py`, off by default, only so the v9 check
+above can be reproduced; it is not used in any run from here on.
+
+**Joint forecast from the Sep and Oct proxy origins (same day).** The analyst's model was run on a copy of his inputs
+extended to Sep and Oct 2026 (`src/proxy_analyst_inputs.py` -> `outputs/proxy_20261104/analyst/inputs_v8/`; production
+`data/analyst_inputs/` untouched; his forecasts for every earlier origin reproduce production exactly, 4,837 rows). New
+inputs: v8 Sep/Oct prices as his white price (white_observed 0); FEWS NET weekly white quotes for Sep plus Kasuwa where
+FEWS NET has none; NBS Sep 2026 CPI (headline m-o-m 0.06, food -1.55; NBS rebased to 2024 = 100 with this report, so Sep
+CPI is chained from Aug and Oct left blank, which no 2026 forecast reads); street naira ESTIMATED from press BDC quotes,
+his post-Jan-2025 method (Sep 1395, Oct 1377; owner to confirm); CBN official monthly mean; import parity Sep as NADIH
+published it, Oct = Sep carried forward; no yellow (FEWS NET weekly yellow ends 26 Aug) or sorghum for Sep-Oct.
+Sep -> Oct, 1 month, on v8 actuals (8 markets): joint 8.9%, analyst 8.9%, GRU 10.5%, do-nothing 7.2%; bias -8.8%; 7 of 8
+inside the 80% range (`outputs/proxy_20261104/analyst/joint_sep_oct_origins_v8.csv`). Oct-origin joint forecasts for
+Nov 2026 are within -2.5% to +7.9% of the Oct proxy price.
+
+Import parity, two open points: (1) no Oct row exists (the NADIH sheet ends Sep; IMF's Oct maize price was not yet on FRED
+on 4 Nov), so every Oct-origin run carries Sep forward; (2) NADIH's world maize price for Sep (208.7 USD/t) and Aug (224.0)
+differ from IMF via FRED (PMAIZMTUSDM, fetched 4 Nov: 236.9 and 221.3), while Apr-Jul match FRED exactly. At FRED's Sep
+value the Sep parity would be about 387 NGN/kg instead of 350 (+11%). Not changed here; to be confirmed with NADIH.
+
+**Owner decision (2026-11-04): use FRED's Sep world maize price; rerun.** Parity file
+`data/external/20261104_NADIH_ImportParity_Maize_Monthly_2006-01_2026-10_SepFobFRED_OctCarried_v1.csv`: Sep fob 236.92
+USD/t (IMF via FRED, PMAIZMTUSDM) instead of NADIH's 208.7, parity 387.4 NGN/kg instead of 349.9; Oct = Sep carried
+forward; every other month unchanged. Reruns: GRU `outputs/proxy_20261104/gru_serving_origin_2026{09,10}_fredparity/`,
+analyst `outputs/proxy_20261104/analyst/inputs_v8_fredparity/` (`src/proxy_analyst_inputs.py --parity`), joint
+`outputs/proxy_20261104/analyst/joint_sep_oct_origins_v8_fredparity.csv`. Sep -> Oct on v8 (8 markets): joint 8.2% (was
+8.9%), analyst 8.4% (8.9%), GRU 9.7% (10.5%), do-nothing 7.2%; bias -7.9%; 7 of 8 inside the 80% range. Oct origin: the
+higher parity switches the analyst's import window OFF (it was ON at NADIH's price: Nigerian maize above landed import
+cost while duty-free), so his 3- and 6-month forecasts rise a median 18% and 33% and the joint 10% and 17%; the 1-month
+forecasts move about 1%. The Oct-origin 3- and 6-month forecasts therefore hinge on the parity, and Oct's parity is still
+Sep's carried forward. Aug's NADIH value (224.0 against FRED 221.3) was left as is.
+
+**6-month GRU forecasts for Sep and Oct 2026 (owner request, 2026-11-04).** The GRU was retrained point in time with the
+production config at cuts 2026-04-01 and 2026-05-01 (`src/run.py --cuts 2015-09-01 2026-0M-01 --save-latest-cut-models
+--require-horizons 1`; 1,331 training windows each; `outputs/proxy_20261104/gru_cut_20260{4,5}01/`) and forecast from the
+production panel cut at Mar and Apr 2026 (`--max-staleness-months 12`, since those origins are now over 6 months old).
+Joint = production combination with the analyst's forecasts for the same origins; ranges by the production method.
+Scores (`outputs/proxy_20261104/h6_joint_scores.csv`): Mar -> Sep on FEWS NET weekly (8 markets) joint 11.2% MAPE / 40.4
+NGN/kg MAE, GRU 10.3%, analyst 13.2%, do-nothing 20.1%, direction 8 of 8, 8 of 8 inside the 80% range, bias -11.2%;
+backtest 6-month joint 2025-26 26.4%. Apr -> Oct on v8 proxies (8 markets) joint 23.9%, GRU 21.5%, analyst 26.0%,
+do-nothing 22.8%, bias -23.9%, 8 of 8 inside the range.
+
+**FEWS NET weekly feeder (owner request, 2026-11-04).** Why it was missed: the monthly run, the release monitor
+(`src/fewsnet_monitor.py`) and the D-77 setup all read FEWS NET's monthly series only; the weekly quotes come from a
+separate per-dataseries query (`schedule=Weekly`) and reach the API about 4 days after each week (Sep 2026 complete for
+8 markets on 4 Oct), while the monthly series still had no Sep on 4 Nov. Our 12 Oct forecast could have started from Sep.
+`src/fewsnet_weekly_feeder.py` turns the weekly quotes into a month value that keeps averaging as weeks arrive, with weeks
+in / expected (Wednesdays) and status complete / closed_with_gaps / partial; checked against the published monthly
+values, 98% of 1,901 complete months match within 0.5% (Aug 2026 is among the exceptions: Dandume weekly 330.5 against
+monthly 310.5). `src/build_gapfilled_panel.py --fews-weekly-feed` uses it for months after the last monthly release,
+ahead of every proxy; off by default, and the default build still reproduces v3 exactly. Panel v10
+(`20261104_FEWSNET_Maize_Monthly_GapFilled_Panel_v10_WeeklyFeed.xlsx`) = v8 + the feed: Sep 2026 for Biu, Damaturu,
+Dandume, Ibadan, Kaura Namoda, Maiduguri, Mubi, Potiskum from FEWS NET weekly (6 proxies replaced, 2 markets added);
+Oct unchanged (no Oct weeks yet). RUNBOOK step 0 added. Six markets have had no weekly series since Jan 2025 and still
+need proxies. Not yet decided: forecast timing (official forecast once the month is complete versus mid-month
+provisional runs) and the analyst's inputs (his white price comes from the data team's consolidated file).
+
+**Sep-origin GRU and joint rerun on panel v10 (owner request, 2026-11-04).** Monthly panel
+`data/panel_monthly_gapfilled_pit_v10_202609.parquet`; GRU `outputs/proxy_20261104/gru_serving_origin_202609_v10/`
+(production checkpoint, FRED Sep parity); analyst `outputs/proxy_20261104/analyst/inputs_v10/` (`--panel` v10; FEWS NET
+weekly cells flagged observed), earlier origins unchanged; joint `outputs/proxy_20261104/analyst/joint_sep_origin_v10.csv`.
+11 markets now forecast from Sep (Ibadan and Maiduguri added; 8 start from FEWS NET's own Sep price). Sep -> Oct against the
+unadjusted Oct proxies (8 markets): joint 9.4% (v8-origin run 8.2%), GRU 11.7%, analyst 8.2%, do-nothing 8.4%, bias
+-9.4%, direction 1 of 8. This mixes FEWS NET-level starting prices with proxy-level actuals (the Sep proxies sat above
+FEWS NET); against Oct proxies re-levelled by each market's Sep FEWS NET / proxy ratio (5 markets) the joint is 8.7%,
+against 8.9% for the v8-origin run on the same 5 markets. October needs FEWS NET's own numbers before any verdict.
+
+**Correction (2026-11-04, later): FEWS NET published Sep 2026 monthly on 4 Oct; our check was wrong.** A single
+country-wide API request spanning Jun-Sep 2026 returns Jun, Jul and Aug only (891 records) and silently drops Sep; each
+month requested on its own is complete. `src/fewsnet_monitor.py` and the 4 Nov "0 markets for Sep" check used such a
+multi-month window, so every statement above that FEWS NET had not released Sep, or that its monthly series lagged the
+weekly one, is wrong: Sep monthly wholesale white maize is out for 9 markets (Biu 310.16, Damaturu 349.60, Dandume 318.60,
+Ibadan 450.00, Kano 368.00, Kaura Namoda 346.40, Maiduguri 350.00, Mubi 326.40, Potiskum 372.00 NGN/kg), status_changed
+4 Oct 2026, the same day as the last weekly quote, and equal to the weekly means. So the Sep scores "on FEWS NET weekly"
+above are on FEWS NET's published values, plus Kano (368.00, against v8 proxy 362.34). Our 12 Oct forecast could have
+used Sep as its origin. Fixed: the monitor now requests one month at a time; feeder docstring and RUNBOOK step 0
+corrected. `src/fetch_fewsnet_weekly.py` queries one dataseries over its full history and is not affected. Oct 2026: no
+FEWS NET record for Nigeria in any product, monthly or weekly, as of 4 Nov (single-month request).
+
+**Panel v11 (2026-11-04): FEWS NET Sep 2026 as observed.** `src/build_gapfilled_panel.py --fews-monthly-extra` adds FEWS NET
+monthly values published after the API export the panel reads; v11 = v8 + Sep 2026 for 9 markets
+(`data/external/20261104_FEWSNET_API_Nigeria_WhiteWholesale_Monthly_2026-09_v1.csv`, published 4 Oct) flagged observed.
+Sep now enters the point-in-time level ratios of the Oct fills, which moved by at most 1.1% (Biu 330.69 -> 326.99). Sep
+proxies remain only for Giwa and Saminaka; Oct is all proxy. Colour-coded workbook:
+`20261104_FEWSNET_Maize_Monthly_GapFilled_Panel_v11_SepFEWSNET.xlsx`. Next check of FEWS NET for Oct: 5 Nov 2026.
+
+**Correction to the correction (2026-11-05): the cause of the 4 Nov miss is not confirmed.** On 5 Nov the same
+country-wide Jun-Sep 2026 request returned all four months (1,188 rows, 297 per month), so a multi-month request does
+not always drop the latest month, and there is no row cap. The API sends `Cache-Control: max-age=900, private`; Python's
+urllib keeps no cache, so a client cache does not explain it either. What stands: on 4 Nov that request returned 891 rows
+without Sep, and Sep had been published on 4 Oct. `src/fewsnet_monitor.py` now (1) requests each month on its own with a
+cache-busting parameter, which the API accepts and ignores, and (2) repeats the multi-month request and shows a red
+warning if its row count differs from the per-month total. October 2026 check, 5 Nov 08:56: no Nigeria records of any
+product, monthly or weekly; the last weekly white maize quote is 30 Sep.
+
+**FEWS NET revision check, full history (2026-11-06).** `src/fewsnet_revision_check.py` re-pulled Nigeria Oct 2004 to
+Oct 2026, one month per request with a cache-busting parameter (265 requests; raw rows in
+`data/external/20261106_FEWSNET_API_Nigeria_AllRows_Monthly_2004-10_2026-10_v1.parquet`), and compared them with the
+export the production panel reads (`20261012_FEWSNET_API_Nigeria_MarketPrices_2003-10_2026-08_v2.xlsx`). Results in
+`outputs/fewsnet_revisions_20261106/`:
+- White maize wholesale: 2,273 market-months unchanged; 14 revised, all Jul and Aug 2026 (Dandume Aug 310.50 -> 330.50,
+  +6.4%; Kano Aug 380 -> 370, -2.6%; Damaturu Aug 350.00 -> 341.50; the rest within 2.5%); 9 added (Sep 2026). Before
+  2026, 14 cells differ by 0.01 NGN/kg at most, which is rounding (tolerance set to 0.011), not revision.
+- Diesel retail: 18 revised, all Jul and Aug 2026 (Potiskum Aug 2,200 -> 2,050, -6.8%; Damaturu Aug 1,831 -> 1,728,
+  -5.6%; Biu Jul 1,910.2 -> 1,988.2, +4.1%); 9 added (Sep 2026). The GRU reads diesel, so its inputs moved too.
+- Eight months return no rows (Oct and Nov 2024, Feb, May, Jun, Jul and Oct 2025, Oct 2026); all but Oct 2026 are empty
+  in our export too (no collection), so nothing was dropped.
+- The revised rows still carry status_changed 4 Aug (Jul) and 30 Aug (Aug) 2026, before our 5 Oct pull, and the CSV
+  endpoint now returns the same revised values as the JSON one. So FEWS NET edited these values in place after 5 Oct
+  without changing the record's dates: a revision can only be found by comparing values. RUNBOOK step 0 now re-checks
+  the last six months every run.
+Not yet done: rebuilding the production panel with the revised Jul and Aug values and re-scoring the Jul and Aug 2026
+targets; this goes with the owner's decision on which panel production uses (v3 to Aug, or v11 with Sep). The 12 Oct
+production forecast started Dandume from 310.50 against FEWS NET's revised 330.50.
+
+**Production panel rebuilt with FEWS NET's revised Jul and Aug 2026 (owner request, 2026-11-06).** Inputs:
+`Downloads/20261106_FEWSNET_API_Nigeria_MarketPrices_2003-10_2026-08_v3.xlsx` (the 12 Oct v2 export with the 14 white
+maize and 18 diesel Jul/Aug 2026 cells replaced; sheet revisions_20261106) and
+`data/panel_weekly_oos2026_fewsdiesel_rev20261106.parquet` (the weekly drivers with Jul/Aug 2026 diesel scaled by
+FEWS NET's revision; 81 weekly rows; the stored diesel is FEWS NET x a fixed per-market splice ratio, checked constant,
+so the scaling is exact). New options: `build_gapfilled_panel.py --fews-export`, `build_monthly_gapfilled.py
+--weekly-drivers`; both default to the old inputs, and the default builds still reproduce panel v3 and the production
+monthly panel and grid exactly. Gap-filled workbook v12
+(`Downloads/20261106_FEWSNET_Maize_Monthly_GapFilled_Panel_v12_RevisedJulAug.xlsx`, same options as v3): 14 cells differ
+from v3, all observed Jul/Aug prices; no fill moved. Monthly panel vs production: price and target_price 14 cells,
+upstream_price 20, diesel 9 (Aug row only; drivers lag one month), grid actual 42 rows, naive 7 (Jul origins); grid
+still 5,068 rows. Installed as `data/panel_monthly_gapfilled_pit.parquet` and `data/monthly_grid_gapfilled_pit.parquet`;
+the 12 Oct files kept as `data/*_pit_v3_20261012.*`. Still through Aug 2026 (Sep not added; that is the separate panel
+decision). Re-score of the joint backtest on the revised actuals, forecasts as issued
+(`outputs/joint_forecast/backtest/20261106_raw_errors_mae_mape_vs_naive_revisedJulAug.csv`): every figure moves by
+0.5 NGN/kg MAE or less, except 2026 Jan-Aug: analyst 1-month MAE 14.1 -> 14.7, joint 6-month MAE 46.4 -> 45.9.
+Not rerun: the d75 evaluation outputs and the 12 Oct production forecast (kept as issued).
+
+**September-origin forecast rerun on the corrected panel (owner request, 2026-11-06).** Panel v13
+(`Downloads/20261106_FEWSNET_Maize_Monthly_GapFilled_Panel_v13_SepFEWSNET_RevisedJulAug.xlsx`) = v11's options with the
+revised FEWS NET export (`--fews-export ..._v3.xlsx`), built --through 2026-09. The Kasuwa collector file v11 used
+(`20261104_Kasuwa_WhiteMaize_Collector_2025-12_2026-10_v1.xlsx`) and its October source CSV are no longer on this
+machine; v13 reads `Price Data From January Till Date.xlsx` directly (the same quotes to 28 Sep). Check: every cell to Sep
+2026 equals v11 except the 14 revised Jul/Aug prices. Monthly panel `data/panel_monthly_gapfilled_pit_v13_202609.parquet`
+(revised weekly drivers). GRU: production checkpoint (cut 2026-06-01) with FRED Sep import parity
+(`outputs/sep_origin_20261106/gru_serving/`); analyst: his model on proxy inputs with the v13 Sep prices, FRED Sep
+parity, street naira 1,395 (estimate, not yet confirmed by the owner). Result:
+`outputs/sep_origin_20261106/20261106_FEWSNET_JointForecast_OriginSep2026_v1.csv` (11 markets, 1/3/6 months, 80% and 90%
+ranges, production method). Against the 4 Nov run on uncorrected Jul/Aug (panel v10): every joint forecast within
+1.2% (largest Biu 6 months, 304.0 -> 300.4). Not published; production files unchanged.
+
+**Per-market ranges (owner hypothesis, 2026-11-06): calmer markets should get calmer ranges.** `src/range_per_market.py`,
+results in `outputs/range_per_market_20261106/`. Same joint misses as production, revised Jul/Aug actuals, walk-forward
+(misses with target at or before the origin), targets Jan 2019 to Aug 2026 (1,154 / 1,140 / 1,130). Settings fixed before
+the run (own-market minimum 24 misses; shrinkage weight 24). Interval score: width plus 2/alpha x the distance outside,
+% of actual, lower is better; t = Newey-West on target-month means.
+- The pooled range is too wide for calm markets and too narrow for volatile ones at 1 month: price inside the 80% range
+  89.9% for the calmer half of markets against 77.7% for the more volatile half (Ibadan 95.5%, Lagos 95.7%, Potiskum
+  91.7%; Saminaka 71.4%, Biu 73.8%). Smaller at 3 months (87.8% / 81.6%) and 6 months (87.5% / 82.4%).
+- Own-market ranges at 1 month: interval score 3.2% better (t -3.7), inside 81.9% (pooled 84.1%), median width 24.1%
+  (25.0%), market coverage gap from 80% halves (7.6 to 4.2 points); calm half width 25.0% -> 20.8% with 82.1% inside;
+  volatile half 25.0% -> 28.0% with 81.7% inside. Also better in Oct 2024 to Aug 2026 (5.9%, t -2.4). Scaled-by-misses
+  1.9% better (t -4.8); scaled-by-price-volatility 1.7% (t -3.1).
+- At 3 months no method beats pooled (own -0.1%, t -0.1); at 6 months all are worse (own +2.0%; scaled-by-misses +1.1%,
+  t 3.5). Over longer horizons nationwide moves dominate and one market's ~100 misses are too few to beat the pool.
+- The pooled 80% range held 84-89% of the time in 2019-24 at every horizon, so it is somewhat wide in normal years; in
+  Oct 2024 to Aug 2026 it held 54% at 6 months (prices below it), and no per-market method changes that.
+Proposed (not adopted, owner's decision): own-market ranges at 1 month, pooled at 3 and 6 months. Example from Sep 2026
+prices, 1-month 80% width: Ibadan 24.6% -> 17.6%, Potiskum 18.6%, Maiduguri 19.7%; Saminaka 31.1%, Biu 29.3%.
+
+**Calm-period vs shock-period ranges (owner hypothesis, 2026-11-06).** `src/range_regimes.py`, results in
+`outputs/range_regimes_20261106/`. One range for calm months and one for shock months, each from past misses whose
+origin was in the same regime (at least 60, else pooled); then layered per market (own-market range stretched by the
+regime ratio; or same-regime misses scaled to the market's miss size). Regime at the origin, point-in-time; settings fixed
+before the run: SHOCK = above the 75th percentile, up to the origin, of (price) the root mean square of all markets'
+1-month log price changes over the last 3 months, or (fx) the absolute 3-month change in the CBN central rate.
+Shock months with the full-history threshold: price 27 of 96 since Oct 2018 (mid-2020 to Jan 2021, late 2021, Jun 2023
+to Mar 2024, Jun-Aug 2024, Aug-Oct 2025); fx 34 of 96 (2020, mid-2021, late 2022, mid-2023 to Nov 2024, ...). Point-in-
+time shares of test forecasts: price 33-35%, fx 48-51%. Targets Jan 2019 to Aug 2026.
+- Pooled coverage does differ by regime at 1 month: 86.1% inside in calm months vs 79.5% in shock months (price), 90.0% vs
+  78.2% (fx). At 3 and 6 months it reverses for price shocks (83.5% vs 88.2%; 81.0% vs 94.3%): after a price shock the
+  next 3 to 6 months are not more volatile than usual.
+- On its own the regime range does not help: 1 month price -0.8% interval score (t -0.5), fx +0.7% (t 0.6); 3 months
+  +6.6% (price) and +4.7% (fx, t 2.5) worse; 6 months +3.8% and +13.9% (fx, t 2.0) worse.
+- Layered per market: 1 month price -3.5% (t -1.7), fx -2.5% (t -2.0), against -3.1% (t -3.5) for per-market alone, so
+  no gain over per-market alone and less reliable; worse at 3 and 6 months (+4% to +15%). In Oct 2024 to Aug 2026 the
+  layered version is better at 1 month (price -8.0%, t -3.1; fx -7.0%) but worse at 6 months (fx +27.6%).
+Conclusion: not adopted; the per-market range at 1 month (entry above) remains the best change found.
+
+## D-80. Per-market ranges at 1 month in production (owner decision, 2026-11-06)
+
+**Decision.** `src/joint_forecast.py live` sets the 1-month 80% and 90% ranges from the market's OWN past joint misses
+(`range_quantiles`, at least 24, else pooled); 3- and 6-month ranges stay pooled over markets. Evidence: the per-market
+range entry above (`src/range_per_market.py`): interval score 3.2% better at 1 month (t -3.7), no gain at 3 months,
+worse at 6. Past misses are now scored on the production grid's actuals (`revised_actuals`, so FEWS NET's later
+revisions count). Output gains `range_method` per row. `src/joint_production_checks.py` uses the same rule and also
+reports the old pooled rule ("joint pooled"); previous checks kept in `outputs/joint_forecast/production_checks_20261029/`.
+
+**Checks (joint, 1 month, origins Jan 2017 to Jul 2026).** 80% range: inside 81.7% (pooled 83.9%), median width 25.6%
+(25.5%); Oct 2024 to Aug 2026 82.9% (81.5%). 90%: 92.6% (93.2%); Oct 2024 to Aug 2026 94.5% (89.7%). 3 and 6 months
+identical to before; "joint pooled" reproduces the 29 Oct checks exactly. In 2023-24 (targets) the 1-month 80% range
+held 72.4% per-market against 74.9% pooled, with most misses above the range (prices rising), so per-market is not better
+in that period; it is over all years and in Oct 2024 to Aug 2026.
+
+**First use.** The forecast from Sep 2026 prices (`outputs/sep_origin_20261106/20261106_FEWSNET_JointForecast_OriginSep2026_v2.csv`,
+not yet published: street naira and import parity still to confirm): forecasts and 3/6-month ranges identical to v1;
+1-month 80% widths from 24.6% for every market to 17.6% (Ibadan) through 31.1% (Saminaka).
+
+**Note received the same day** (suggestions passed on by the owner), checked against the record:
+- "Build the per-market scale factor D-24 says was never added": D-24 is the retired split-conformal method of
+  `src/intervals.py` (weekly models, decommissioned 2026-09-28). For the current ranges it has now been built and tested
+  three ways (own-market misses; pooled misses scaled to each market's miss size; scaled to each market's price
+  volatility); adopted at 1 month above.
+- "Change the default 60/40 split so recent years help set the ranges, then re-check 2023-24": the 60/40 calibration /
+  test split is D-24's; the production ranges (D-78) use every miss known by each forecast date, so 2023-24 and 2025-26
+  already set them. Weighting recent misses more was tested on 3 Nov (last 3 years only; 2-year half-life): narrower,
+  less accurate at 3 and 6 months. 2023-24 re-checked above.
+- "The 90% range for Damaturu at 6 months goes as low as NGN 57/kg": not the production range. Damaturu's 6-month 90%
+  floor is 220.3 in the 12 Oct forecast and 237.5 from Sep 2026 prices; production ranges are multiplicative, so they
+  cannot fall near zero. D-24's symmetric interval (forecast +/- qhat x origin price, 6-month 90% qhat 0.57 to 0.77)
+  gives 69 to 139 from today's Damaturu price, so the figure most likely comes from that retired method. Showing only
+  the 80% range is the owner's call; the 90% range holds 90-93% of the time in the checks.
+
+**Production data refresh for the forecast from Sep 2026 prices (owner request, 2026-11-06: "all moving parts up to
+date").** Staleness audit of every GRU input, then:
+- **Prices.** Production panel = gap-filled v13 (v11 options + FEWS NET's revised Jul/Aug; Sep observed for 9 markets,
+  Giwa and Saminaka filled), through Sep 2026. FEWS NET had no Oct data in any product at 09:32 on 6 Nov. Previous
+  production files kept as `data/*_pit_v12_20261106.*` (v12, to Aug). Against v12: 15 earlier filled prices differ (the
+  owner-accepted v8 AFEX corrections and stand-ins), training targets identical.
+- **Grid.** `build_monthly_gapfilled.py` had the last origin fixed at Jul 2026; it now follows `--last-month` (last origin
+  = the month before), so Aug 2026 origins are scored (9 one-month rows). Default build unchanged (checked equal to the
+  12 Oct grid).
+- **Rainfall and NDVI** were 4-5 months stale in production (rainfall to 17 Jun, NDVI to 20 May 2026, carried forward
+  since). WFP CHIRPS (rfh) and MODIS NDVI (vim), state level, from HDX (updated 3 Nov; the files were read in the
+  browser pane because HDX answers scripted downloads with HTTP 202 and no body; 999 rainfall and 555 NDVI values, sums
+  checked against the browser): `data/external/hdx_20261106/`. Rainfall Jan-1 Jun 2026 replaced (our copy held CHIRPS
+  preliminary values; HDX now final; 2022-25 identical to the decimal); new dekads to 21 Sep (final; Oct preliminary,
+  not used). NDVI: history kept to 11 May (later vintages differ by about 0.004 from smoothing), new dekads 21 May to
+  11 Oct. `climate_assignment.py` (Maize-Forecasting repo, run on a scratch copy) reproduces every pre-2026 weekly value
+  exactly. New weekly drivers: `data/panel_weekly_oos2026_fewsdiesel_v20261106.parquet` (+ `.log.json`).
+- **Diesel.** FEWS NET Sep 2026 retail diesel (published 4 Oct) added for its 9 markets with each market's fixed splice
+  ratio (Dandume 1,745 -> 2,040, Damaturu 1,728 -> 1,944 NGN/litre in FEWS NET terms). The other 7 markets' diesel has
+  been carried forward since the NBS state series ended in Sep 2024; no newer source (known limit).
+- **CBN daily rate** to 5 Nov 2026 (`20261106_CBN_API_..._2026-11_v1.csv`); one historical value changed (12 Dec 2023
+  central 848.78 -> 853.28). Production config points to it.
+- **Import parity.** NADIH's fob equals FRED's IMF maize price in 247 of 249 months; Aug and Sep 2026 differed (NADIH
+  provisional 224.0 and 208.7, FRED 221.30 and 236.92). Aug/Sep replaced with FRED, NADIH freight, rate and duty kept:
+  `20261106_NADIH_ImportParity_..._AugSepFobFRED_v1.csv`; Sep parity 349.93 -> 387.37 NGN/kg. Production config points to
+  it. FRED had no Oct value on 6 Nov.
+- **GRU retrain due** (3-month cadence; serving cut 2026-06-01). `run.py --serving-cut YYYY-MM-DD` (new, needs
+  --save-latest-cut-models) fits one extra, final cut for live forecasting although no scored origin follows it yet
+  (Sep's 1-month actual is unpublished), using only windows whose last target is before the cut; every other cut is
+  unchanged. Retrain to `outputs/production_monthly_parity_serving_20261106/` (cut 2026-09-01) and backtests to
+  `outputs/d75_monthly_parity_pit_20261106/h{1,3,6}` on the refreshed data; results in the next entry.
+
+**GRU retrain, analyst update and recreation pack v4 (2026-11-06).**
+- GRU: serving cut 2026-09-01 (1,361 training windows; cut 2026-06-01 had 1,346) installed as
+  `outputs/production_monthly_parity_serving/` (previous kept as `..._cut20260601/`); backtests rerun on the refreshed
+  data installed as `outputs/d75_monthly_parity_pit/` (previous as `..._20261012/`). On the same forecasts the backtest
+  error is unchanged (MAPE 8.31 / 16.02 / 22.27 against 8.31 / 16.01 / 22.27). Some old forecasts moved by up to 3% (one
+  seed) with identical training sets: CPU training is not bit-for-bit repeatable (best validation loss differs in 72 of
+  308 seed fits, the stopping epoch in 3); medians barely move. Forecast from Sep 2026 prices against this morning's
+  run (cut 2026-06-01, stale climate): -1.1% / +2.7% / +11.4% median at 1 / 3 / 6 months; decomposed with the old
+  model on the new inputs, almost all is the climate refresh (-1.9% / +1.2% / +9.6%), FX and parity 0.0%, the retrain
+  about +1%.
+- Analyst: the owner confirmed (6 Nov) the four staged items: street naira Sep 1,395; NBS Sep headline +0.06%, food
+  -1.55%; white maize prices from the production panel instead of the data team's consolidated file (whose 15 Oct copy
+  held old Sep stand-ins and pre-revision Jul/Aug); world maize Aug/Sep from FRED. `data/analyst_inputs/` replaced by
+  the staged inputs (previous kept as `data/analyst_inputs_20261030/`); `outputs/joint_forecast/analyst_forecasts.csv`
+  rerun (previous kept as `..._20261030.csv`): origins before Jun 2026 identical, Jun-Aug 2026 up to 4.1%.
+- Production forecast from Sep 2026 prices: `outputs/joint_forecast/predictions/2026-11-06.csv` (11 markets, no notes;
+  1-month ranges per market, D-80). Joint backtest (targets Jan 2017 to Sep 2026): MAPE 6.45 / 14.65 / 18.13 against
+  "no change" 8.33 / 18.22 / 23.80; D-45 passed at all horizons over all years and at 3 and 6 months in Oct 2024 to Sep
+  2026, not at 1 month there (as on 29 Oct); 80% range coverage 81.8 / 81.9 / 83.0%. Analyst truncation test passes.
+- `build_gapfilled_panel.py --afex-chat` now also takes the overrides CSV extracted from the AFEX WhatsApp export
+  (`data/external/20261106_AFEX_Chat_OldCropOverrides_Maize_Monthly_v1.csv`; identical panel), so the export, which holds
+  members' names and phone numbers, is not shared. `src/climate_refresh.py` (new) scripts the rainfall / NDVI / diesel
+  refresh and reproduces today's weekly drivers exactly.
+- Recreation pack v4 (`Downloads/20261106_Augmentum_Recreation_FEWSNET-JointForecast_v4.zip`): code (files kept out of git and
+  local-only notes excluded), data, sources, trained model, backtests, expected outputs, `RECREATE.md`, verification in
+  10 stages (16 checks), all passing from a clean copy.

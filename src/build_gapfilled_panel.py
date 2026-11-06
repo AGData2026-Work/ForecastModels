@@ -26,6 +26,7 @@ Sep 2026 extract re-tagged) instead of the 23 Sep observed panel. Monthly value 
 20261019_FEWSNET_Maize_Monthly_Retail_Panel_v1.xlsx) as the first fill source for every market, level-adjusted
 to wholesale by the usual prior-overlap ratio. Retail tracks wholesale closely at these markets (ratio 0.96-1.01,
 monthly changes correlate 0.81-0.96). With --extra-2026 it also adds Damaturu <- Potiskum from the 2026 file.
+--extra-standins (off by default): PLAN_V8 below, only for months after FEWS NET's last release (owner, 2026-11-04).
 --through YYYY-MM adds empty FEWS NET months after the export's last month, so a source can fill a month
 FEWS NET has not released yet (e.g. Sep 2026). Such months can never be interpolated (no later anchor).
 
@@ -70,7 +71,20 @@ PLAN_2026 = {"Potiskum": [("Price Data 2026", "Potiskum", "direct")],
 # Added only with --fews-retail (owner request 2026-10-19): Damaturu from the 2026 file's Potiskum (same state, 9
 # overlap months in 2026, FEWS NET Damaturu / file Potiskum 0.87, monthly changes correlate 0.63).
 PLAN_V7 = {"Damaturu": [("Price Data 2026", "Potiskum", "stand-in, Yobe")]}
+# Added only with --extra-standins (owner request 2026-11-04), and only for months after FEWS NET's last release (earlier,
+# AFEX Dawanau would replace the Feb-Mar 2025 interpolation 679 -> 680 with 531 and 515): AFEX Dawanau for
+# Kano, Dawanau (same market, but AFEX runs about 15% below FEWS NET there, so the overlap ratio matters; monthly
+# changes correlate 0.40, 23 months 2024-26), AFEX Talata Mafara for Kaura Namoda (Zamfara; 0.89, 0.66, 11 months) and
+# Damaturu <- the 2026 file's Potiskum as in PLAN_V7, without needing --fews-retail.
+PLAN_V8 = {"Kano, Dawanau": [("AFEX", "Dawanau", "direct, AFEX")],
+           "Kaura Namoda": [("AFEX", "Talata Mafara", "stand-in, Zamfara")],
+           "Damaturu": PLAN_V7["Damaturu"]}
 MIN_OVERLAP = 6
+# --harvest-ratio (owner request 2026-11-04): in Sep and Oct, FEWS NET has sat further below AFEX's old-crop quotes than
+# in other months (Dandume 0.81 against 0.96, Saminaka 0.83 against 0.95), so an AFEX fill in Sep or Oct uses the median
+# FEWS NET / AFEX ratio over prior Sep-Oct overlap months only, where there are at least 5; otherwise the usual ratio.
+HARVEST_MONTHS = ("09", "10")
+MIN_OVERLAP_HARVEST = 5
 MAX_INTERP = 2
 
 
@@ -88,9 +102,10 @@ def load_price_data_2026(path: str | Path) -> pd.DataFrame:
 
 def load_inputs(dl: str | Path, extra_2026: str | Path | None = None, through: str | None = None,
                 afex_chat: str | Path | None = None, afex_maize: str | Path | None = None,
-                fews_retail: str | Path | None = None) -> dict:
+                fews_retail: str | Path | None = None, fews_export: str | Path | None = None) -> dict:
     dl = Path(dl)
-    F = (pd.read_excel(dl / "20261012_FEWSNET_API_Nigeria_MarketPrices_2003-10_2026-08_v2.xlsx",
+    # fews_export: a later copy of the API export (e.g. ..._v3.xlsx of 6 Nov 2026 with FEWS NET's Jul/Aug 2026 revisions)
+    F = (pd.read_excel(Path(fews_export) if fews_export else dl / "20261012_FEWSNET_API_Nigeria_MarketPrices_2003-10_2026-08_v2.xlsx",
                        "white_maize_wholesale_kg").set_index("month").drop(columns="markets_reporting"))
     X = pd.read_excel(dl / "20261012_FEWSNET Price Data_v1.xlsx")
     X = X[(X["product"] == "Maize Grain (White)") & (X.price_type == "Wholesale")].copy()
@@ -123,7 +138,10 @@ def load_inputs(dl: str | Path, extra_2026: str | Path | None = None, through: s
     overridden = set()
     if afex_chat:
         from afex_chat import old_crop_overrides
-        ov = old_crop_overrides(afex_chat)
+        # a .csv is the overrides table already extracted from the chat (months down, markets across), so the chat
+        # export itself, which holds members' names and phone numbers, need not be shared
+        ov = (pd.read_csv(afex_chat, index_col=0, dtype={0: str}) if str(afex_chat).endswith(".csv")
+              else old_crop_overrides(afex_chat))
         A = src["AFEX"]
         A = A.reindex(sorted(set(A.index) | set(ov.index)))
         for mo in ov.index:
@@ -138,6 +156,7 @@ def load_inputs(dl: str | Path, extra_2026: str | Path | None = None, through: s
 def build_long(inp: dict, cutoff: str | None = None) -> pd.DataFrame:
     F = inp["F"].copy()
     months = list(F.index)
+    fews_last = F.dropna(how="all").index.max()  # PLAN_V8 fills only months after FEWS NET's last release
     if cutoff:
         F.loc[[m for m in months if m > cutoff]] = np.nan
     X = inp["X"]
@@ -162,10 +181,16 @@ def build_long(inp: dict, cutoff: str | None = None) -> pd.DataFrame:
             if pd.notna(v):
                 r.update(price_NGN_per_kg=round(v, 2), flag="observed", source_market=mkt,
                          source="FEWS NET API, value_one_year_ago" if (mkt, m) in recov else "FEWS NET API")
+            elif (mkt, m) in inp.get("fews_weekly", {}) and m > fews_last:
+                wv = inp["fews_weekly"][(mkt, m)]   # FEWS NET's own weekly quotes, ahead of every proxy
+                r.update(price_NGN_per_kg=round(wv["price_ngn_per_kg"], 2), flag="filled_direct", source="FEWS NET weekly",
+                         source_market=mkt, source_value=round(wv["price_ngn_per_kg"], 2), ratio_applied=1.0,
+                         fill_kind=f"direct, FEWS NET weekly mean; {wv['status']} ({wv['weeks_in']} of {wv['weeks_expected']} weeks)")
             else:
                 retail = [("FEWS NET retail", mkt, "direct, retail")] if "FEWS NET retail" in src else []
                 v7 = PLAN_V7.get(mkt, []) if "FEWS NET retail" in src else []
-                cands = retail + PLAN.get(mkt, []) + PLAN_2026.get(mkt, []) + v7
+                v8 = [c for c in PLAN_V8.get(mkt, []) if c not in v7] if inp.get("extra_standins") and m > fews_last else []
+                cands = retail + PLAN.get(mkt, []) + PLAN_2026.get(mkt, []) + v7 + v8
                 cands = [c for c in cands if c[2].startswith("direct")] + [c for c in cands if not c[2].startswith("direct")]  # same market first
                 for s_name, sm, kind in cands:
                     if s_name not in src:
@@ -179,6 +204,11 @@ def build_long(inp: dict, cutoff: str | None = None) -> pd.DataFrame:
                         ratio = float(np.median([F.loc[x, mkt] / s[x] for x in prior])); adj = "adjusted"
                     else:
                         ratio = 1.0; adj = "unadjusted (fewer than 6 prior overlap months)"
+                    prior_h = [x for x in prior if x[5:] in HARVEST_MONTHS]
+                    if inp.get("harvest_ratio") and s_name == "AFEX" and m[5:] in HARVEST_MONTHS and len(prior_h) >= MIN_OVERLAP_HARVEST:
+                        ratio = float(np.median([F.loc[x, mkt] / s[x] for x in prior_h]))
+                        adj = f"adjusted, harvest-month ratio ({len(prior_h)} prior Sep-Oct overlaps)"
+                        prior = prior_h
                     oc = "; old crop only (AFEX chat)" if s_name == "AFEX" and (sm, m) in inp.get("afex_old_crop", ()) else ""
                     r.update(price_NGN_per_kg=round(s[m] * ratio, 2),
                              flag="filled_direct" if kind.startswith("direct") else "filled_standin",
@@ -208,9 +238,31 @@ def main() -> None:
     ap.add_argument("--through", default=None, help="extend the months to YYYY-MM with empty FEWS NET values")
     ap.add_argument("--fews-retail", default=None, help="FEWS NET retail panel xlsx (Long_panel): same-market retail as the first fill source")
     ap.add_argument("--afex-maize", default=None, help="corrected AFEX maize panel (Weekly_Panel sheet) to use as the AFEX source")
-    ap.add_argument("--afex-chat", default=None, help="AFEX WhatsApp _chat.txt: old-crop AFEX values where new crop was mixed in")
+    ap.add_argument("--afex-chat", default=None, help="AFEX WhatsApp _chat.txt, or the overrides CSV extracted from it (src/afex_chat.py old_crop_overrides): old-crop AFEX values where new crop was mixed in")
+    ap.add_argument("--fews-monthly-extra", default=None, help="CSV market, month, price_ngn_per_kg: FEWS NET monthly wholesale values "
+                    "published after the API export (e.g. Sep 2026, published 4 Oct), added as observed")
+    ap.add_argument("--fews-weekly-feed", default=None, help="src/fewsnet_weekly_feeder.py output: for months after FEWS NET's "
+                    "last monthly release, the mean of its weekly quotes so far fills the market first (flag filled_direct, "
+                    "source 'FEWS NET weekly', fill_kind gives complete/partial and weeks in)")
+    ap.add_argument("--fews-export", default=None, help="FEWS NET API export xlsx to read instead of the 12 Oct v2 copy "
+                    "(sheet white_maize_wholesale_kg), e.g. the 6 Nov v3 with FEWS NET's revised Jul and Aug 2026")
+    ap.add_argument("--harvest-ratio", action="store_true", help="AFEX fills in Sep and Oct use the Sep-Oct-only prior overlap ratio (at least 5 months)")
+    ap.add_argument("--extra-standins", action="store_true",
+                    help="also fill Kano, Dawanau (AFEX Dawanau), Kaura Namoda (AFEX Talata Mafara) and Damaturu (2026 file Potiskum)")
     a = ap.parse_args()
-    inp = load_inputs(a.dl, a.extra_2026, a.through, a.afex_chat, a.afex_maize, a.fews_retail)
+    inp = load_inputs(a.dl, a.extra_2026, a.through, a.afex_chat, a.afex_maize, a.fews_retail, a.fews_export)
+    if a.fews_monthly_extra:   # FEWS NET monthly values published after the API export the panel reads (observed)
+        fx = pd.read_csv(a.fews_monthly_extra)
+        for r in fx.itertuples(index=False):
+            if r.month not in inp["F"].index:
+                raise SystemExit(f"{r.month} is outside the panel's months; pass --through")
+            inp["F"].loc[r.month, r.market] = float(r.price_ngn_per_kg)
+        print(f"FEWS NET monthly values added as observed: {len(fx)} ({a.fews_monthly_extra})")
+    inp["extra_standins"] = a.extra_standins
+    inp["harvest_ratio"] = a.harvest_ratio
+    if a.fews_weekly_feed:
+        fw = pd.read_csv(a.fews_weekly_feed)
+        inp["fews_weekly"] = {(r.market, r.month): r._asdict() for r in fw.itertuples(index=False)}
     if a.afex_chat:
         print(f"AFEX cells replaced with old crop only: {len(inp['afex_old_crop'])}")
     P = build_long(inp)

@@ -11,11 +11,13 @@ the GRU passed for D-77, on the shared forecasts (origins Jan 2017 to Jul 2026, 
    seed median, exactly as production does.
 2. Accuracy against naive and against the GRU alone (MAE, MAPE, DM), all years and Oct 2024 to Aug 2026.
 3. Direction right, falls called, rises called, bias (median forecast / actual - 1; share of forecasts too high).
-4. Ranges: the production method (quantiles of every past miss, log(actual / forecast), whose outcome was known by
-   the forecast date, pooled over markets, per horizon) applied to the joint forecast; 50 / 80 / 90%; coverage, misses
-   below and above, width; next to the same method on the GRU alone, on the same forecasts. The pool of past misses
+4. Ranges: the production method (joint_forecast.range_quantiles: quantiles of every past miss, log(actual /
+   forecast), whose outcome was known by the forecast date; the market's own misses at 1 month, pooled over markets at
+   3 and 6 months, since 2026-11-06) applied to the joint forecast; 50 / 80 / 90%; coverage, misses below and above,
+   width; next to the same method on the GRU alone, and to the pooled method on the joint ("joint pooled"), on the same
+   forecasts. The pool of past misses
    starts with the production forecasts of 2015, the joint falling back to the GRU before the analyst's first forecast.
-Scored on FEWS NET observed actuals (production predictions_paired.csv). Writes CSVs to --out.
+Scored on FEWS NET observed actuals (production predictions_paired.csv, with the production grid's later revisions). Writes CSVs to --out.
 """
 from __future__ import annotations
 
@@ -27,7 +29,7 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).parent))
-from joint_forecast import combine  # noqa: E402
+from joint_forecast import combine, range_quantiles, revised_actuals  # noqa: E402
 from metrics import diebold_mariano, mae, mape  # noqa: E402
 
 RUN = "outputs/d75_monthly_parity_pit/h{h}"
@@ -36,8 +38,8 @@ LEVELS = (0.5, 0.8, 0.9)
 
 
 def load(analyst: pd.DataFrame, h: int) -> tuple[pd.DataFrame, pd.DataFrame]:
-    paired = pd.read_csv(Path(RUN.format(h=h)) / "predictions_paired.csv", parse_dates=["origin"]).query("h == @h")
-    seeds = pd.read_csv(Path(RUN.format(h=h)) / "forecasts.csv", parse_dates=["origin"]).query("h == @h")
+    paired = revised_actuals(pd.read_csv(Path(RUN.format(h=h)) / "predictions_paired.csv", parse_dates=["origin"]).query("h == @h"), h)
+    seeds = revised_actuals(pd.read_csv(Path(RUN.format(h=h)) / "forecasts.csv", parse_dates=["origin"]).query("h == @h"), h)
     a = analyst[analyst.h == h][["market", "origin", "p0", "recommended"]]
     x = paired.merge(a, on=["market", "origin"])
     x["target"] = x.origin + pd.DateOffset(months=h)
@@ -86,17 +88,19 @@ def ranges(x: pd.DataFrame, full: pd.DataFrame, h: int) -> tuple[list[dict], pd.
     """Past misses come from every production forecast since 2015 (`full`); where the analyst's model has no forecast
     (before Jan 2017) the joint forecast falls back to the GRU, so the joint pool uses the GRU's misses there."""
     rows, band = [], []
-    for c in ("GRU", "joint"):
-        r_all = np.log(full.actual / full[c])
+    for c, col, hh in (("GRU", "GRU", h), ("joint", "joint", h), ("joint pooled", "joint", 0)):   # hh 0: pooled rule
+        r_all = np.log(full.actual / full[col]).to_numpy()
+        mk_all = full.market.to_numpy()
         for org in sorted(x.origin.unique()):
-            past = r_all[full.target <= org]
+            keep = (full.target <= org).to_numpy()
+            past, mk = r_all[keep], mk_all[keep]
             if len(past) < 60:
                 continue
             cur = x[x.origin == org]
             for lv in LEVELS:
-                ql, qh = np.quantile(past, (1 - lv) / 2), np.quantile(past, 1 - (1 - lv) / 2)
+                q = np.array([range_quantiles(past, mk, m, hh, [(1 - lv) / 2, 1 - (1 - lv) / 2])[0] for m in cur.market])
                 band.append(pd.DataFrame(dict(model=c, h=h, level=lv, market=cur.market, origin=org, target=cur.target, actual=cur.actual,
-                                              forecast=cur[c], lo=cur[c] * np.exp(ql), hi=cur[c] * np.exp(qh))))
+                                              forecast=cur[col], lo=cur[col] * np.exp(q[:, 0]), hi=cur[col] * np.exp(q[:, 1]))))
     b = pd.concat(band)
     b["inside"] = (b.actual >= b.lo) & (b.actual <= b.hi)
     for (c, lv), g in b.groupby(["model", "level"]):
@@ -119,7 +123,7 @@ def main() -> None:
     for h in (1, 3, 6):
         x, s = load(an, h)
         D += d45(x, s, h); B += behaviour(x, h)
-        full = pd.read_csv(Path(RUN.format(h=h)) / "predictions_paired.csv", parse_dates=["origin"]).query("h == @h")
+        full = revised_actuals(pd.read_csv(Path(RUN.format(h=h)) / "predictions_paired.csv", parse_dates=["origin"]).query("h == @h"), h)
         full["target"] = full.origin + pd.DateOffset(months=h)
         full = full.merge(x[["market", "origin", "joint"]], on=["market", "origin"], how="left")
         full["joint"] = full.joint.fillna(full.GRU)                    # fallback: GRU alone where he has no forecast

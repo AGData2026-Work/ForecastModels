@@ -59,7 +59,7 @@ data:
   train_markets: all_in_panel
   drop_target_dates: []           # the weekly outage-week drop has no monthly analogue
   fx_rate_path: data/external/fx_rate.xlsx
-  fx_daily_path: data/external/20261002_CBN_API_Nigeria_USDNGN_Daily_2001-12_2026-09_v1.csv
+  fx_daily_path: data/external/20261106_CBN_API_Nigeria_USDNGN_Daily_2001-12_2026-11_v1.csv   # refreshed 2026-11-06 (was 20261002 ..._2026-09_v1)
   inflation_path: data/external/inflation.xlsx
   fx_lag_months: 0
   fx_monthly_cutoff_day: 14       # FX read on the 14th of the month after the origin month
@@ -76,7 +76,7 @@ features:
   fourier_k: 2
   explicit_lag52: true
   fx_summary: true
-  parity_path: data/external/20261012_NADIH_ImportParity_Maize_Monthly_2006-01_2026-09_v1.csv
+  parity_path: data/external/20261106_NADIH_ImportParity_Maize_Monthly_2006-01_2026-09_AugSepFobFRED_v1.csv   # 2026-11-06: Aug/Sep fob from FRED (NADIH provisional values replaced)
   fx_summary_subset: ['fx_dep3_rank', 'fx_dep6_rank', 'fx_dep12_rank', 'months_since_deval']   # ablation
 
 model:
