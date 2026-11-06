@@ -4341,3 +4341,28 @@ date").** Staleness audit of every GRU input, then:
 - Recreation pack v4 (`Downloads/20261106_Augmentum_Recreation_FEWSNET-JointForecast_v4.zip`): code (files kept out of git and
   local-only notes excluded), data, sources, trained model, backtests, expected outputs, `RECREATE.md`, verification in
   10 stages (16 checks), all passing from a clean copy.
+
+**Production forecast starts from October 2026 stand-ins (owner decision, 2026-11-06).** FEWS NET had published nothing
+for October; the owner asked for the October stand-ins to be used, as in the 4 Nov checks.
+- Panel v14 (`Downloads/20261106_FEWSNET_Maize_Monthly_GapFilled_Panel_v14_OctStandins_RevisedJulAug.xlsx`) = v11's
+  options through Oct with the revised FEWS NET export. The collector file v11 used, and its October source CSV, are no
+  longer on this machine; the 10 October rows were recovered from the 4 Nov session record (every value printed there)
+  and the file rebuilt (`data/external/20261106_Kasuwa_WhiteMaize_Collector_2025-12_2026-10_v1_rebuilt.xlsx`). Against
+  v11: the 14 revised Jul/Aug prices and two Oct stand-ins whose level ratio now includes the revised months (Damaturu
+  376.41 -> 375.32, Dandume 390.12 -> 391.11); every other cell equal. October stand-ins for 8 markets (Biu 326.99,
+  Damaturu 375.32, Dandume 391.11, Giwa 376.29, Kano 373.44, Kaura Namoda 362.10, Potiskum 413.64, Saminaka 320.43);
+  none for Ibadan, Maiduguri, Mubi.
+- Monthly panel through Oct installed as production (Sep version kept as `data/*_pit_sep20261106.*`); grid and every
+  earlier cell identical, so no retrain and unchanged backtests. Import parity: Oct row = Sep world maize and freight
+  carried (FRED has no Oct), CBN Oct mean rate 1,338.49 (`..._2026-10_AugSepFobFRED_OctStandin_v1.csv`); config and the
+  serving model's metadata point to it.
+- GRU from Oct for the 8 markets (`predictions/2026-11-06_origin2026-10.csv`); Sep file kept as `..._origin2026-09.csv`.
+  Analyst: owner confirmed the Oct inputs (white = stand-ins, observed flag 0; street naira 1,377; world maize carried;
+  NBS Oct blank); installed (Sep inputs kept as `data/analyst_inputs_sep20261106/`); earlier origins' forecasts unchanged.
+- `joint_forecast.py live --gru-fallback <earlier GRU file>`: markets missing from the latest GRU file keep the earlier
+  month's forecast, flagged in `note`. Published: `outputs/joint_forecast/predictions/2026-11-06.csv` (Oct for 8
+  markets, Sep for Ibadan, Maiduguri, Mubi; Sep-only version kept as `..._origin2026-09.csv`). Backtest, production
+  checks and truncation test byte-for-byte unchanged.
+- Caution recorded: the stand-ins show an October rise (Dandume +23% on FEWS NET's Sep); joint 6-month forecasts 13-34%
+  above October for 8 markets; the analyst's model has 3 weekly quotes for October. Rerun when FEWS NET publishes Oct.
+- Recreation pack v5 (`Downloads/20261106_Augmentum_Recreation_FEWSNET-JointForecast_v5.zip`) supersedes v4.

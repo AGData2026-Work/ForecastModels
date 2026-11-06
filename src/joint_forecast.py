@@ -114,8 +114,16 @@ def past_misses(analyst: pd.DataFrame, h: int, until: pd.Timestamp) -> pd.DataFr
     return pd.DataFrame({"market": x.market.to_numpy(), "e": np.log(x.actual / x.joint).to_numpy()})
 
 
-def live(analyst: pd.DataFrame, gru_path: str, out: Path) -> pd.DataFrame:
+def live(analyst: pd.DataFrame, gru_path: str, out: Path, gru_fallback: str | None = None) -> pd.DataFrame:
     g = pd.read_csv(gru_path, parse_dates=["origin"])
+    fell_back = set()
+    if gru_fallback:
+        # markets with no price in the latest month (e.g. Ibadan, Maiduguri, Mubi when the latest month is a stand-in
+        # month without them) keep their forecast from the earlier month's GRU file, flagged in `note`
+        f = pd.read_csv(gru_fallback, parse_dates=["origin"])
+        f = f[~f.market.isin(g.market)]
+        fell_back = set(f.market)
+        g = pd.concat([g, f], ignore_index=True)
     a = analyst[["market", "origin", "h", "p0", "recommended"]]
     x = g.merge(a, on=["market", "origin", "h"], how="left")
     x["joint"] = combine(x.forecast_price, x.origin_price, x.recommended, x.p0)
@@ -133,6 +141,11 @@ def live(analyst: pd.DataFrame, gru_path: str, out: Path) -> pd.DataFrame:
             x.loc[i, ["range_method", "n_past_misses"]] = [how, n]
     x["note"] = np.where(x.inflation_adjusted.isna(), "no analyst forecast for this market and origin; joint not issued",
                          np.where(x.origin_price_gap_pct.abs() > 1, "origin prices differ by more than 1%", ""))
+    if fell_back:
+        later = g.origin.max().strftime("%Y-%m")
+        msg = f"no price for {later}; forecast from this earlier month"
+        k = x.market.isin(fell_back)
+        x.loc[k, "note"] = np.where(x.loc[k, "note"] == "", msg, x.loc[k, "note"] + "; " + msg)
     cols = ["market", "origin", "h", "origin_price_gru", "origin_price_analyst", "origin_price_gap_pct", "gru",
             "inflation_adjusted", "joint", "lo80", "hi80", "lo90", "hi90", "range_method", "n_past_misses", "note"]
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -145,6 +158,7 @@ def main() -> None:
     ap.add_argument("mode", choices=["evaluate", "live"])
     ap.add_argument("--analyst", required=True)
     ap.add_argument("--gru", default=None)
+    ap.add_argument("--gru-fallback", default=None, help="live: an earlier GRU prediction file used for markets missing from --gru")
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
     an = load_analyst(a.analyst)
@@ -153,7 +167,7 @@ def main() -> None:
         t, k = evaluate(an, Path(a.out))
         print(t.round(2).to_string(index=False)); print("\nkeep rule (joint minus GRU, points vs naive):\n", k.round(2).to_string())
     else:
-        print(live(an, a.gru, Path(a.out)).round(1).to_string(index=False))
+        print(live(an, a.gru, Path(a.out), a.gru_fallback).round(1).to_string(index=False))
 
 
 if __name__ == "__main__":

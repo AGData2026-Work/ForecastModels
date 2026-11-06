@@ -33,6 +33,8 @@ One production forecast per workstream; everything else is decommissioned (`docs
   data/analyst_inputs` (feature model at 1 month, import switch at 3 and 6). Since D-79 (2026-10-30) his inputs are
   plain CSVs (`src/analyst_inputs.py`), updated monthly from the sources by `src/analyst_inputs_update.py`; no
   workbook in the loop (`--workbook` remains for comparing with what he sends).
+  Latest forecast (6 Nov 2026): from October 2026 stand-in prices for 8 markets, September FEWS NET for Ibadan,
+  Maiduguri, Mubi (`--gru-fallback`); rerun when FEWS NET publishes October.
   `src/joint_forecast.py live` combines them and adds 80% / 90% ranges (each market's own past misses at 1 month, D-80,
   2026-11-06; pooled over markets at 3 and 6); GRU alone where he has no forecast. Monthly
   routine in `RUNBOOK.md` ("Monthly joint forecast"); checks in `outputs/joint_forecast/production_checks/`

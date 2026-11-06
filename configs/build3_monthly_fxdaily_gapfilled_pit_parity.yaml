@@ -76,7 +76,7 @@ features:
   fourier_k: 2
   explicit_lag52: true
   fx_summary: true
-  parity_path: data/external/20261106_NADIH_ImportParity_Maize_Monthly_2006-01_2026-09_AugSepFobFRED_v1.csv   # 2026-11-06: Aug/Sep fob from FRED (NADIH provisional values replaced)
+  parity_path: data/external/20261106_NADIH_ImportParity_Maize_Monthly_2006-01_2026-10_AugSepFobFRED_OctStandin_v1.csv   # 2026-11-06: Aug/Sep fob from FRED; Oct = Sep fob and freight carried, CBN Oct mean rate (stand-in)
   fx_summary_subset: ['fx_dep3_rank', 'fx_dep6_rank', 'fx_dep12_rank', 'months_since_deval']   # ablation
 
 model:
