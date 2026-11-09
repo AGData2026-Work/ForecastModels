@@ -4366,3 +4366,24 @@ for October; the owner asked for the October stand-ins to be used, as in the 4 N
 - Caution recorded: the stand-ins show an October rise (Dandume +23% on FEWS NET's Sep); joint 6-month forecasts 13-34%
   above October for 8 markets; the analyst's model has 3 weekly quotes for October. Rerun when FEWS NET publishes Oct.
 - Recreation pack v5 (`Downloads/20261106_Augmentum_Recreation_FEWSNET-JointForecast_v5.zip`) supersedes v4.
+
+**Bias-shifted ranges (owner go-ahead, 2026-11-06). Not adopted.** The range experiments left one open problem: in
+2025-26 the ranges missed because they were off-centre, not too narrow (at 3 and 6 months every miss fell below).
+`src/range_bias_shift.py` keeps each production range's width and moves its centre to where recent misses have been
+(median miss over the last 12 or 6 months known at the origin, in place of the long-run median; point forecast
+unchanged). Variants fixed before the run: shift12, shift12_half, shift6, shift12_own. Targets Jan 2019 to Sep 2026,
+1,163 / 1,149 / 1,139 forecasts at 1 / 3 / 6 months; d75 evaluation as retrained on 6 Nov. Results in
+`outputs/range_bias_shift_20261106/` (scores.csv, by_direction.csv, shifts.csv). Interval score against production
+(negative = better; Newey-West t):
+- 2019 to Sep 2026: no variant better at any horizon. shift12 +1.2 / +3.5 / +5.1%; shift12_half -0.6 / +0.1 / -0.1%;
+  shift6 +3.0 / +3.2 / -8.5% (t -0.7 at 6 months).
+- 2025 to Sep 2026, where the problem was: shift6 -4.5 / -29.7 / -33.2% (t -1.8 / -1.9 / -1.4), 6-month 80% coverage
+  53.5% -> 66.7%.
+- 2023-24, the rise: the same shifts cost +11.7 / +23.4 / +27.2% (shift6) and +11.3 / +17.6 / +29.5% (shift12, t 1.5 /
+  2.7 / 2.0); 6-month coverage 86.0% -> 70.8-72.7%.
+- shift6 puts the point forecast outside its own 80% range in 10.4% (3 months) and 13.1% (6 months) of forecasts.
+Reading: the recent bias does not carry forward; it flips at turning points. The 6-month shift12 was +21 to +23% in
+Jan-Jun 2024, near the peak, and -32 to -37% from Sep 2025, after the fall. A shift built from past misses lags the turn
+the same way the model does, so it helps after a turn and hurts across the next one. Production ranges unchanged. The
+bias in falling markets still needs new information, not a recalibration of past misses; import volumes are the
+untried candidate (the street naira rate was tried inside the GRU on 26 Oct, three ways, and not kept).
